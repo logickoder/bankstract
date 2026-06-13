@@ -48,8 +48,78 @@ jobs:
           uv run pyright src tests
           uv run pytest
 
+      # Release gate. Two filters; if either says skip, publish is skipped.
+      #
+      #   1. PATH filter: skip if no release-relevant file changed (anything
+      #      outside src/, pyproject.toml, uv.lock — docs-only / tests-only
+      #      / CI-only commits don't get published).
+      #   2. COMMIT TYPE filter (Conventional Commits):
+      #        feat        → minor bump on collision
+      #        fix / perf  → patch bump on collision
+      #        chore / docs / test / refactor / ci / style / build / revert → skip
+      #        anything else → fail loud (forces explicit type)
+      #
+      # workflow_dispatch bypasses both filters so manual runs always publish.
+      - name: Detect changed files
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "release_paths_touched=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files=$(git diff-tree --no-commit-id --name-only -r HEAD)
+          echo "Changed files in HEAD:"
+          echo "$files" | sed 's/^/  /'
+
+          touched=false
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            case "$f" in
+              src/*|pyproject.toml|uv.lock) touched=true; break ;;
+            esac
+          done <<< "$files"
+          echo "release_paths_touched=$touched" >> "$GITHUB_OUTPUT"
+
+      - name: Determine release decision
+        id: ct
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "type=manual" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch — bypassing path + commit-type filters."
+            exit 0
+          fi
+
+          if [[ "${{ steps.changes.outputs.release_paths_touched }}" != "true" ]]; then
+            echo "type=none" >> "$GITHUB_OUTPUT"
+            echo "No release-relevant paths touched (src/, pyproject.toml, uv.lock). Skipping publish."
+            exit 0
+          fi
+
+          subject=$(git log -1 --pretty=%s)
+          echo "Commit subject: $subject"
+
+          prefix="${subject%%[:(]*}"
+          case "$prefix" in
+            feat)
+              echo "type=minor" >> "$GITHUB_OUTPUT" ;;
+            fix|perf)
+              echo "type=patch" >> "$GITHUB_OUTPUT" ;;
+            chore|docs|test|refactor|ci|style|build|revert)
+              echo "type=none" >> "$GITHUB_OUTPUT"
+              echo "Non-release commit type '$prefix' — will skip publish." ;;
+            *)
+              echo "::error::Commit subject must start with a Conventional Commits prefix (feat|fix|perf|chore|docs|test|refactor|ci|style|build|revert). Got: '$subject'"
+              exit 1 ;;
+          esac
+
       - name: Resolve publish version
         id: version
+        if: steps.ct.outputs.type != 'none'
         shell: bash
         run: |
           set -euo pipefail
@@ -61,13 +131,18 @@ jobs:
           echo "initial_version=$VERSION" >> "$GITHUB_OUTPUT"
 
           if curl -fs "https://pypi.org/pypi/${NAME}/${VERSION}/json" > /dev/null 2>&1; then
-            echo "Version ${VERSION} already on PyPI. Bumping minor..."
-            scripts/bump-version.sh minor
+            bump="${{ steps.ct.outputs.type }}"
+            if [[ "$bump" == "manual" ]]; then
+              echo "::error::Manual dispatch but version ${VERSION} already on PyPI. Bump locally first, then retry."
+              exit 1
+            fi
+            echo "Version ${VERSION} already on PyPI. Bumping ${bump}..."
+            scripts/bump-version.sh "$bump"
             NEW_VERSION=$(uv run python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
 
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add pyproject.toml src/bankstract/__init__.py uv.lock
+            git add pyproject.toml src/bankstract/__init__.py uv.lock README.md
             git commit -m "chore(release): bump version to ${NEW_VERSION} [skip ci]"
             git push origin HEAD:main
 
@@ -79,12 +154,19 @@ jobs:
           fi
 
       - name: Build wheel + sdist
+        if: steps.ct.outputs.type != 'none'
         run: uv build
 
       - name: Publish to PyPI
+        if: steps.ct.outputs.type != 'none'
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Summary
+        if: always()
         run: |
-          echo "Published ${{ steps.version.outputs.package_name }}@${{ steps.version.outputs.version }}"
-          echo "Version bumped: ${{ steps.version.outputs.bumped }}"
+          if [[ "${{ steps.ct.outputs.type }}" == "none" ]]; then
+            echo "Publish skipped (paths_touched=${{ steps.changes.outputs.release_paths_touched }}, decision=none)."
+          else
+            echo "Published ${{ steps.version.outputs.package_name }}@${{ steps.version.outputs.version }}"
+            echo "Decision: ${{ steps.ct.outputs.type }} | bumped: ${{ steps.version.outputs.bumped }}"
+          fi
