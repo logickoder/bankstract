@@ -21,12 +21,13 @@ wheels = [
 
 [[package]]
 name = "bankstract"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "pdfplumber" },
     { name = "pydantic" },
+    { name = "pymupdf" },
 ]
 
 [package.optional-dependencies]
@@ -46,7 +47,6 @@ ocr = [
 [package.dev-dependencies]
 dev = [
     { name = "pre-commit" },
-    { name = "pymupdf" },
     { name = "pyright" },
 ]
 
@@ -58,6 +58,7 @@ requires-dist = [
     { name = "pdfplumber", specifier = ">=0.11" },
     { name = "pillow", marker = "extra == 'ocr'", specifier = ">=10.0" },
     { name = "pydantic", specifier = ">=2.6" },
+    { name = "pymupdf", specifier = ">=1.27.2" },
     { name = "pytesseract", marker = "extra == 'ocr'", specifier = ">=0.3.10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
@@ -67,7 +68,6 @@ provides-extras = ["ocr", "camelot", "dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pre-commit", specifier = ">=4.6.0" },
-    { name = "pymupdf", specifier = ">=1.27.2.3" },
     { name = "pyright", specifier = ">=1.1.410" },
 ]
 

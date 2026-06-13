@@ -133,6 +133,12 @@ uv run bankstract palmpay tests/fixtures/palmpay/sample.pdf -o /tmp/out.csv
 uv run bankstract redact list
 uv run bankstract redact palmpay tests/fixtures/palmpay/_local/statement.pdf tests/fixtures/palmpay/sample.pdf
 
+# bump version
+scripts/bump-version.sh                 # patch bump (default)
+scripts/bump-version.sh minor           # minor bump
+scripts/bump-version.sh major           # major bump
+scripts/bump-version.sh 0.3.0           # set exact version
+
 # build wheel + sdist
 uv build
 ```

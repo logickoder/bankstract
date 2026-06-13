@@ -1,0 +1,90 @@
+name: Publish to PyPI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC trusted publishing — configure once at
+# https://pypi.org/manage/project/bankstract/settings/publishing/
+# with workflow=publish.yml, owner=logickoder, repo=bankstract.
+permissions:
+  id-token: write
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@main
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --frozen
+
+      - name: Lint + types + tests
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+          uv run pyright src tests
+          uv run pytest
+
+      - name: Resolve publish version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NAME=$(uv run python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['name'])")
+          VERSION=$(uv run python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+
+          echo "package_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "initial_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if curl -fs "https://pypi.org/pypi/${NAME}/${VERSION}/json" > /dev/null 2>&1; then
+            echo "Version ${VERSION} already on PyPI. Bumping minor..."
+            scripts/bump-version.sh minor
+            NEW_VERSION=$(uv run python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pyproject.toml src/bankstract/__init__.py uv.lock
+            git commit -m "chore(release): bump version to ${NEW_VERSION} [skip ci]"
+            git push origin HEAD:main
+
+            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Summary
+        run: |
+          echo "Published ${{ steps.version.outputs.package_name }}@${{ steps.version.outputs.version }}"
+          echo "Version bumped: ${{ steps.version.outputs.bumped }}"

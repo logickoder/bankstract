@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bankstract"
-version = "0.1.0"
+version = "0.2.0"
 description = "Convert Nigerian bank PDF statements into structured CSV."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -22,6 +22,7 @@ dependencies = [
     "click>=8.1",
     "pdfplumber>=0.11",
     "pydantic>=2.6",
+    "pymupdf>=1.27.2",
 ]
 
 [project.optional-dependencies]
@@ -44,7 +45,9 @@ Issues = "https://github.com/logickoder/bankstract/issues"
 packages = ["src/bankstract"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "README.md", "LICENSE", "PRD.md"]
+# Fixture PDFs in tests/ are dev-only redacted samples; exclude from the
+# published sdist to keep the upload lean.
+include = ["src", "README.md", "LICENSE", "PRD.md", "pyproject.toml", "uv.lock"]
 
 [tool.ruff]
 line-length = 100
@@ -61,6 +64,5 @@ addopts = "-ra"
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
-    "pymupdf>=1.27.2.3",
     "pyright>=1.1.410",
 ]

@@ -47,6 +47,23 @@ Add a dependency with `uv add <pkg>` (dev: `uv add --dev <pkg>`). Commit `uv.loc
 
 The pre-commit hook runs `ruff check`, `ruff format --check`, `pyright` (strict), and `pytest` before every commit. Bypass only in genuine emergencies with `git commit --no-verify`; the same checks run again in CI.
 
+### Releasing
+
+CI publishes to PyPI automatically on push to `main` via `.github/workflows/publish.yml`. The workflow runs the full gate (ruff + pyright + pytest), and if the current `pyproject.toml` version already exists on PyPI it auto-bumps the minor component and commits the bump before publishing. PyPI auth uses OIDC trusted publishing — no token in repo or CI secrets.
+
+To prepare a release locally:
+
+```bash
+scripts/bump-version.sh                 # patch bump
+scripts/bump-version.sh minor           # 0.2.x -> 0.3.0
+scripts/bump-version.sh major           # 0.x.x -> 1.0.0
+scripts/bump-version.sh 0.3.0           # exact set
+uv build                                # dist/*.whl + dist/*.tar.gz
+uv publish dist/*                       # only if not using the GH workflow; needs --token or UV_PUBLISH_TOKEN
+```
+
+Trusted-publisher setup (one-time, owner only): create a publisher at <https://pypi.org/manage/account/publishing/> with workflow `publish.yml`, repo `logickoder/bankstract`.
+
 ## Usage
 
 ```bash
