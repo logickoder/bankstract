@@ -65,11 +65,33 @@ ANCHOR_PHRASES: tuple[str, ...] = ("Send to", "Received from")
 
 HEADER_CHROME: frozenset[str] = frozenset(
     {
-        "TOTAL", "MONEY", "IN", "OUT", "STATEMENT", "PERIOD", "PRINT", "TIME",
-        "TRANSACTION", "DETAIL", "DATE", "ID", "PAGE", "OF", "NGN",
-        "NAME", "PHONE", "NUMBER", "ACCOUNT", "ADDRESS",
-        "PALMPAY", "PALM", "PAY",
-        "REDACTED", "PARTY", "TEST", "USER",
+        "TOTAL",
+        "MONEY",
+        "IN",
+        "OUT",
+        "STATEMENT",
+        "PERIOD",
+        "PRINT",
+        "TIME",
+        "TRANSACTION",
+        "DETAIL",
+        "DATE",
+        "ID",
+        "PAGE",
+        "OF",
+        "NGN",
+        "NAME",
+        "PHONE",
+        "NUMBER",
+        "ACCOUNT",
+        "ADDRESS",
+        "PALMPAY",
+        "PALM",
+        "PAY",
+        "REDACTED",
+        "PARTY",
+        "TEST",
+        "USER",
     }
 )
 
@@ -216,9 +238,7 @@ def _redact_body(
             if normalized in NARRATION_PHRASES:
                 continue
 
-            anchor = next(
-                (a for a in ANCHOR_PHRASES if normalized.startswith(a.lower())), None
-            )
+            anchor = next((a for a in ANCHOR_PHRASES if normalized.startswith(a.lower())), None)
             if anchor:
                 skip = start + len(anchor.split())
                 for idx in range(skip, end):

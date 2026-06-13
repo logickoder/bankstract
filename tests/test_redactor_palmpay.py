@@ -104,9 +104,7 @@ def _synthetic_palmpay_pdf(path: Path) -> Path:
         (50, 170), "06/11/2026 07:00:00 PM Card Payment-WEB -4100.00 w135y916f200", fontsize=10
     )
     page.insert_text((140, 190), "Send to BAR", fontsize=10)
-    page.insert_text(
-        (50, 210), "06/10/2026 06:00:00 PM -50000.00 z999a888b777", fontsize=10
-    )
+    page.insert_text((50, 210), "06/10/2026 06:00:00 PM -50000.00 z999a888b777", fontsize=10)
     page.insert_text((140, 230), "QUUX LTD", fontsize=10)
     doc.save(str(path))
     doc.close()

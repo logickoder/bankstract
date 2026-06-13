@@ -36,12 +36,16 @@ Project uses [uv](https://docs.astral.sh/uv/) for dependency + venv management.
 
 ```bash
 uv sync --all-extras       # create .venv, install deps + extras from uv.lock
+uv run pre-commit install  # one-time: enable the pre-commit hook
 uv run pytest              # run tests
 uv run ruff check src tests
+uv run pyright src tests   # strict type check (see CLAUDE.md directive 8)
 uv run bankstract list     # invoke CLI
 ```
 
 Add a dependency with `uv add <pkg>` (dev: `uv add --dev <pkg>`). Commit `uv.lock`.
+
+The pre-commit hook runs `ruff check`, `ruff format --check`, `pyright` (strict), and `pytest` before every commit. Bypass only in genuine emergencies with `git commit --no-verify`; the same checks run again in CI.
 
 ## Usage
 

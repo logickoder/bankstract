@@ -60,6 +60,7 @@ addopts = "-ra"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.6.0",
     "pymupdf>=1.27.2.3",
     "pyright>=1.1.410",
 ]

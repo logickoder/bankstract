@@ -104,6 +104,9 @@ Project uses `uv` for env + deps. Lockfile is `uv.lock`.
 # install / sync (creates .venv, installs from uv.lock)
 uv sync --all-extras
 
+# enable the pre-commit hook (one-time, runs ruff + pyright + pytest before every commit)
+uv run pre-commit install
+
 # add a dep
 uv add <pkg>
 uv add --dev <pkg>

@@ -37,8 +37,13 @@ def _w(x0: float, text: str) -> Word:
 
 def test_row_kind_classifies_correctly() -> None:
     tx_row = [
-        _w(10, "06/13/2026"), _w(50, "06:38:19"), _w(90, "AM"),
-        _w(120, "CashBox"), _w(170, "Interest"), _w(300, "+3.79"), _w(400, "u835z3qh9b90y"),
+        _w(10, "06/13/2026"),
+        _w(50, "06:38:19"),
+        _w(90, "AM"),
+        _w(120, "CashBox"),
+        _w(170, "Interest"),
+        _w(300, "+3.79"),
+        _w(400, "u835z3qh9b90y"),
     ]
     classes = [classify(w.text) for w in tx_row]
     assert _row_kind(classes) == "tx"
@@ -50,8 +55,13 @@ def test_row_kind_classifies_correctly() -> None:
 
 def test_parse_row_extracts_components() -> None:
     row = [
-        _w(10, "06/13/2026"), _w(50, "06:38:19"), _w(90, "AM"),
-        _w(120, "CashBox"), _w(170, "Interest"), _w(300, "+3.79"), _w(400, "u835z3qh9b90y"),
+        _w(10, "06/13/2026"),
+        _w(50, "06:38:19"),
+        _w(90, "AM"),
+        _w(120, "CashBox"),
+        _w(170, "Interest"),
+        _w(300, "+3.79"),
+        _w(400, "u835z3qh9b90y"),
     ]
     parsed = _parse_row(row)
     assert parsed is not None
@@ -64,9 +74,14 @@ def test_parse_row_extracts_components() -> None:
 
 def test_parse_row_underscore_txid() -> None:
     row = [
-        _w(10, "06/08/2026"), _w(50, "12:04:37"), _w(90, "AM"),
-        _w(120, "CashBox"), _w(170, "Auto"), _w(220, "Save"),
-        _w(300, "-2010.00"), _w(400, "at_35pc6b9301"),
+        _w(10, "06/08/2026"),
+        _w(50, "12:04:37"),
+        _w(90, "AM"),
+        _w(120, "CashBox"),
+        _w(170, "Auto"),
+        _w(220, "Save"),
+        _w(300, "-2010.00"),
+        _w(400, "at_35pc6b9301"),
     ]
     parsed = _parse_row(row)
     assert parsed is not None

@@ -1,0 +1,31 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check src tests
+        language: system
+        pass_filenames: false
+        types_or: [python, toml]
+
+      - id: ruff-format
+        name: ruff format --check
+        entry: uv run ruff format --check src tests
+        language: system
+        pass_filenames: false
+        types_or: [python]
+
+      - id: pyright
+        name: pyright (strict)
+        entry: uv run pyright src tests
+        language: system
+        pass_filenames: false
+        types_or: [python, toml, json]
+
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
+        types_or: [python]
+        stages: [pre-commit]
