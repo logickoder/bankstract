@@ -24,7 +24,7 @@ Sample PDFs in `tests/fixtures/` contain real account data. Before any fixture l
 
 If an unredacted PDF is staged, halt and warn. Run `uv run bankstract redact <bank> <raw> <out>` to scrub it, or regenerate the fixture from a synthetic source.
 
-The same rule extends to **all source and test code**: no real personal names, business names, addresses, phone digits, or account numbers may appear inline — not in test fixtures, not in assertion strings, not in synthetic-PDF generators. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`, etc.). Real values live only in `tests/fixtures/<bank>/_local/` (gitignored).
+The same rule extends to **all source and test code**: no real personal names, business names, addresses, phone digits, or account numbers may appear inline — not in test fixtures, not in assertion strings, not in synthetic-PDF generators. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`, etc.). Real values live only in `tests/<bank>/fixtures/_local/` (gitignored).
 
 ### 4. HUMAN IN THE LOOP
 Do not run `git commit`, `git push`, `git tag`, or any publish operation without explicit owner command in the current turn. Edit, save, halt. Owner reviews diffs manually.
@@ -74,13 +74,18 @@ bankstract/
 │       │   └── fbn.py
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
-│           ├── base.py        Redactor ABC + RedactReport
-│           └── palmpay.py     pymupdf true-redaction per-bank
+│           ├── base.py        Redactor ABC + RedactReport (template-method)
+│           ├── _shared.py     redact_word / redact_range / shape_preserve
+│           ├── palmpay.py     phrase-based
+│           └── fbn.py         column-aware aggressive blank
 ├── tests/
-│   ├── fixtures/<bank>/       redacted PDFs only — never commit raw statements
-│   │   └── _local/            gitignored: drop raw PDFs here for dev
-│   ├── test_reconcile.py
-│   └── test_<bank>.py
+│   ├── test_reconcile.py      bank-agnostic invariant tests
+│   └── <bank>/                one folder per bank, mirrors src/ layout
+│       ├── test_parser.py
+│       ├── test_redactor.py
+│       └── fixtures/
+│           ├── sample.pdf     redacted PDF — committed
+│           └── _local/        gitignored: drop raw PDFs here for dev
 └── .github/workflows/ci.yml
 ```
 
@@ -157,7 +162,7 @@ Rules:
 
 ## TESTING
 
-- Every parser ships with at least one anonymized fixture under `tests/fixtures/<bank>/`
+- Every parser ships with at least one anonymized fixture under `tests/<bank>/fixtures/sample.pdf`
 - Reconciliation invariant tested for every fixture in `test_reconcile.py` (row-wise + totals-based)
 - Format-version detection tested against multiple versions when more than one is available
 - Each parser has a sibling `tests/test_redactor_<bank>.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)

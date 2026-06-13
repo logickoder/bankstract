@@ -125,14 +125,18 @@ bankstract/
 │       │   └── fbn.py
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
-│           ├── base.py        Redactor ABC + RedactReport
-│           └── palmpay.py     pymupdf true-redaction per-bank
+│           ├── base.py        Redactor ABC + RedactReport (template-method)
+│           ├── _shared.py     shared redact primitives
+│           ├── palmpay.py
+│           └── fbn.py
 ├── tests/
-│   ├── fixtures/<bank>/       redacted sample PDFs
-│   │   └── _local/            gitignored: raw statements for dev
-│   ├── test_reconcile.py
-│   ├── test_<bank>.py
-│   └── test_redactor_<bank>.py
+│   ├── test_reconcile.py      bank-agnostic
+│   └── <bank>/                one folder per bank
+│       ├── test_parser.py
+│       ├── test_redactor.py
+│       └── fixtures/
+│           ├── sample.pdf     redacted sample (committed)
+│           └── _local/        gitignored: raw statements for dev
 └── .github/workflows/ci.yml   uv + ruff + pyright + pytest
 ```
 
@@ -170,8 +174,8 @@ Add a bank in four steps:
 
 1. Copy `src/bankstract/parsers/palmpay.py` to `src/bankstract/parsers/<your_bank>.py` and implement `detect()` + `parse() -> ParseResult`.
 2. Copy `src/bankstract/redactors/palmpay.py` to `src/bankstract/redactors/<your_bank>.py` for the fixture pipeline.
-3. Drop the raw statement in `tests/fixtures/<your_bank>/_local/` (gitignored), run `uv run bankstract redact <your_bank> <raw> tests/fixtures/<your_bank>/sample.pdf`, eyeball the output, commit the redacted sample.
-4. Add tests in `tests/test_<your_bank>.py` (and optionally `tests/test_redactor_<your_bank>.py`).
+3. Drop the raw statement in `tests/<your_bank>/fixtures/_local/` (gitignored), run `uv run bankstract redact <your_bank> <raw> tests/<your_bank>/fixtures/sample.pdf`, eyeball the output, commit the redacted sample.
+4. Add tests in `tests/<your_bank>/test_parser.py` and `tests/<your_bank>/test_redactor.py`.
 
 CI runs `ruff` + `pyright` (strict) + `pytest`. All three must pass. Reconciliation invariant must hold on every fixture.
 

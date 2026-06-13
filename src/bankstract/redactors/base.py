@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from .._pymupdf import PDF_REDACT_IMAGE_NONE, open_doc
 
 
 @dataclass
@@ -12,7 +15,54 @@ class RedactReport:
 
 
 class Redactor(ABC):
+    """Template-method base: subclasses implement per-page header and body
+    passes; the open/apply/save/insert-text plumbing lives here once."""
+
     bank: str
 
     @abstractmethod
-    def redact(self, src: Path, dst: Path) -> RedactReport: ...
+    def redact_header(
+        self,
+        page: Any,
+        pending_text: list[tuple[Any, str]],
+        audit: list[str],
+    ) -> None: ...
+
+    @abstractmethod
+    def redact_body(
+        self,
+        page: Any,
+        pending_text: list[tuple[Any, str]],
+        audit: list[str],
+    ) -> None: ...
+
+    def redact(self, src: Path, dst: Path) -> RedactReport:
+        report = RedactReport(bank=self.bank)
+        doc = open_doc(src)
+        try:
+            for i in range(1, doc.page_count + 1):
+                page = doc[i - 1]
+                pending_text: list[tuple[Any, str]] = []
+                page_audit: list[str] = []
+
+                self.redact_header(page, pending_text, page_audit)
+                self.redact_body(page, pending_text, page_audit)
+
+                page.apply_redactions(images=PDF_REDACT_IMAGE_NONE)
+                for r, text in pending_text:
+                    page.insert_text(
+                        (r.x0, r.y1 - 2),
+                        text,
+                        fontsize=8,
+                        fontname="helv",
+                        color=(0, 0, 0),
+                    )
+
+                report.pages += 1
+                report.redactions += len(page_audit)
+                report.audit.append((i, page_audit))
+
+            doc.save(str(dst), garbage=4, deflate=True, clean=True)
+        finally:
+            doc.close()
+        return report

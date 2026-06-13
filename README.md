@@ -15,7 +15,7 @@ bankstract list
 | Bank       | Status        |
 | ---------- | ------------- |
 | PalmPay    | v0.1 — alpha  |
-| First Bank | planned v0.2  |
+| First Bank | v0.1 — alpha  |
 
 ## Install
 
@@ -71,8 +71,8 @@ Both modes exist to catch silently-dropped rows — the failure mode of naive PD
 1. Copy `src/bankstract/parsers/palmpay.py` to `src/bankstract/parsers/<bank>.py`.
 2. Implement `detect()` and `parse() -> ParseResult` from `parsers/base.py`. Populate `total_credit` / `total_debit` if the statement only ships header totals.
 3. Add a `Redactor` subclass under `src/bankstract/redactors/<bank>.py` for the fixture pipeline.
-4. Drop the raw statement at `tests/fixtures/<bank>/_local/` (gitignored), then `uv run bankstract redact <bank> <raw> tests/fixtures/<bank>/sample.pdf` to produce the committable fixture.
-5. Add a test in `tests/test_<bank>.py` (and `tests/test_redactor_<bank>.py` for redactor coverage).
+4. Drop the raw statement at `tests/<bank>/fixtures/_local/` (gitignored), then `uv run bankstract redact <bank> <raw> tests/<bank>/fixtures/sample.pdf` to produce the committable fixture.
+5. Add tests under `tests/<bank>/test_parser.py` and `tests/<bank>/test_redactor.py`.
 
 CI runs `ruff` + `pyright` (strict) + `pytest`. All three must pass clean. Reconciliation invariant must hold on every fixture.
 

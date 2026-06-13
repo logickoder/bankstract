@@ -23,4 +23,5 @@ def all_redactors() -> dict[str, Redactor]:
     return dict(_REGISTRY)
 
 
+from . import fbn as fbn  # noqa: E402
 from . import palmpay as palmpay  # noqa: E402

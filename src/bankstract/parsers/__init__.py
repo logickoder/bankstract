@@ -22,4 +22,5 @@ def all_parsers() -> dict[str, Parser]:
     return dict(_REGISTRY)
 
 
+from . import fbn as fbn  # noqa: E402
 from . import palmpay as palmpay  # noqa: E402

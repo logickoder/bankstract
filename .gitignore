@@ -19,8 +19,8 @@ env/
 *.swp
 
 # Fixture privacy — never commit unredacted statements.
-# Drop real PDFs into tests/fixtures/<bank>/_local/ for dev only.
-tests/fixtures/**/_local/
-tests/fixtures/**/*real*.pdf
-tests/fixtures/**/*unredacted*.pdf
-tests/fixtures/**/*raw*.pdf
+# Drop real PDFs into tests/<bank>/fixtures/_local/ for dev only.
+tests/**/fixtures/_local/
+tests/**/fixtures/*real*.pdf
+tests/**/fixtures/*unredacted*.pdf
+tests/**/fixtures/*raw*.pdf

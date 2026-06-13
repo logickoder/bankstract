@@ -12,7 +12,7 @@ from bankstract.parsers.palmpay import (
 from bankstract.reconcile import verify_totals
 from bankstract.schema import ParseResult
 
-FIXTURE_DIR = Path(__file__).parent / "fixtures" / "palmpay"
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def test_parser_registered() -> None:
