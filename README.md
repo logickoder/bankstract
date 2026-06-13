@@ -14,8 +14,8 @@ bankstract list
 
 | Bank       | Status        |
 | ---------- | ------------- |
-| PalmPay    | v0.1 — alpha  |
-| First Bank | v0.1 — alpha  |
+| PalmPay    | v0.2 — alpha  |
+| First Bank | v0.2 — alpha  |
 
 ## Install
 

@@ -46,6 +46,15 @@ sed -i.bak -E "s/^version = \"${current}\"$/version = \"${new}\"/" "$pyproject"
 sed -i.bak -E "s/^__version__ = \"${current}\"$/__version__ = \"${new}\"/" "$init_py"
 rm "${pyproject}.bak" "${init_py}.bak"
 
+# README status table shows the current MAJOR.MINOR tag; keep it in sync.
+# (PRD scope / roadmap intentionally retain historical labels — not touched.)
+new_short="${new%.*}"
+readme="${repo_root}/README.md"
+if [[ -f "$readme" ]]; then
+  sed -i.bak -E "s/v[0-9]+\.[0-9]+ — alpha/v${new_short} — alpha/g" "$readme"
+  rm "${readme}.bak"
+fi
+
 uv sync --quiet
 
 echo "${current} -> ${new}"
