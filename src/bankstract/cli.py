@@ -60,14 +60,18 @@ def _run(parser: Parser, pdf: Path, output: Path, no_reconcile: bool) -> None:
 
     if not no_reconcile:
         try:
+            # Run every check the parser supplied evidence for. reconcile()
+            # is row-wise (needs balance column); verify_totals() is sum-based
+            # (needs header totals). Banks like FBN ship both and benefit from
+            # running both — totals catch dropped rows, row-wise catches
+            # per-row arithmetic errors that happen to sum out.
             if result.total_credit is not None and result.total_debit is not None:
                 verify_totals(
                     result.transactions,
                     total_credit=result.total_credit,
                     total_debit=result.total_debit,
                 )
-            else:
-                reconcile(result.transactions)
+            reconcile(result.transactions)
         except ReconciliationError as exc:
             raise click.ClickException(f"reconciliation failed: {exc}") from exc
 
