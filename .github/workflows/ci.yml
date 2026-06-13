@@ -18,7 +18,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@main
         with:
           enable-cache: true
 
@@ -35,6 +35,6 @@ jobs:
 
       - name: Pyright (strict)
         run: uv run pyright src tests
-        
+
       - name: Pytest
         run: uv run pytest
