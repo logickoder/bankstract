@@ -113,8 +113,11 @@ jobs:
               echo "type=none" >> "$GITHUB_OUTPUT"
               echo "Non-release commit type '$prefix' — will skip publish." ;;
             *)
-              echo "::error::Commit subject must start with a Conventional Commits prefix (feat|fix|perf|chore|docs|test|refactor|ci|style|build|revert). Got: '$subject'"
-              exit 1 ;;
+              # Unknown / non-Conventional subject. Don't fail the workflow —
+              # just skip publish. Forces the next release-bearing commit
+              # (feat / fix / perf) to opt back in explicitly.
+              echo "type=none" >> "$GITHUB_OUTPUT"
+              echo "::warning::Non-Conventional commit subject '$subject' — skipping publish. Use feat|fix|perf prefix to release." ;;
           esac
 
       - name: Resolve publish version
