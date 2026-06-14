@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -8,7 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class Transaction(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    date: date
+    # `datetime`, not `date`, because some banks (PalmPay) include the
+    # transaction timestamp. Banks that only emit a date (FBN) populate this
+    # with time=00:00:00.
+    date: datetime
     narration: str
     debit: Decimal = Field(default=Decimal("0"))
     credit: Decimal = Field(default=Decimal("0"))

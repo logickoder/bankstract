@@ -65,8 +65,8 @@ def test_parse_row_extracts_components() -> None:
     ]
     parsed = _parse_row(row)
     assert parsed is not None
-    date_str, narration, amount, txid = parsed
-    assert date_str == "06/13/2026"
+    datetime_str, narration, amount, txid = parsed
+    assert datetime_str == "06/13/2026 06:38:19 AM"
     assert narration == ["CashBox", "Interest"]
     assert amount == "+3.79"
     assert txid == "u835z3qh9b90y"

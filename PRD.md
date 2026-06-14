@@ -66,7 +66,7 @@ Parsers live in `src/bankstract/parsers/<bank>.py` and self-register via import 
 
 ```python
 class Transaction(BaseModel):
-    date: date
+    date: datetime                   # full timestamp; banks w/o time pad with 00:00:00
     narration: str
     debit: Decimal = Decimal("0")
     credit: Decimal = Decimal("0")

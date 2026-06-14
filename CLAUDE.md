@@ -94,7 +94,7 @@ bankstract/
 - Python 3.11+ (use `match`, `Self`, `Unpack` where applicable)
 - All public functions and class attributes are type-hinted; pyright strict passes clean
 - Money is `decimal.Decimal`, never `float`
-- Dates are `datetime.date`, never `str` past the parser boundary
+- Dates are `datetime.datetime` (full timestamp), never `str` past the parser boundary; banks without a time component pad with `00:00:00`
 - Currency stripped at parse time; the symbol is never re-emitted in stored data
 - `pdfplumber` primary; `camelot-py` lattice fallback; `pytesseract` OCR last
 - `pymupdf` only at the redactor / facade boundary; never reach for it from parser code

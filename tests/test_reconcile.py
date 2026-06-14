@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -13,7 +13,7 @@ def _tx(
     credit: str = "0",
 ) -> Transaction:
     return Transaction(
-        date=date(2026, 1, 1),
+        date=datetime(2026, 1, 1),
         narration="t",
         debit=Decimal(debit),
         credit=Decimal(credit),

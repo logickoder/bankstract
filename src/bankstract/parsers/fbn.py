@@ -150,9 +150,11 @@ def _build_transaction(
                 credit = amt
             break
 
+    # FBN ships date-only ("dd-Mon-yyyy") with no time component; store at
+    # 00:00:00 so the schema stays datetime across all banks.
     parsed_dt = datetime.strptime(date_word.text, "%d-%b-%Y")
     return Transaction(
-        date=parsed_dt.date(),
+        date=parsed_dt,
         narration=narration,
         debit=debit,
         credit=credit,

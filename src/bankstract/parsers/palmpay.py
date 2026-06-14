@@ -81,19 +81,22 @@ def _parse_row(row: list[Word]) -> tuple[str, list[str], str, str | None] | None
     except StopIteration:
         return None
 
-    date_str = row[date_idx].text
-    amount_token = row[amt_idx].text
-
+    # Stitch date + time + AM/PM tokens into one datetime string so the full
+    # PalmPay timestamp survives into Transaction.date.
+    dt_parts = [row[date_idx].text]
     narration_start = date_idx + 1
     while narration_start < amt_idx and classes[narration_start] in ("time", "ampm"):
+        dt_parts.append(row[narration_start].text)
         narration_start += 1
+    datetime_str = " ".join(dt_parts)
+    amount_token = row[amt_idx].text
     narration_tokens = [w.text for w in row[narration_start:amt_idx]]
 
     txid = next(
         (row[i].text for i in range(amt_idx + 1, len(row)) if classes[i] == "alnum"),
         None,
     )
-    return date_str, narration_tokens, amount_token, txid
+    return datetime_str, narration_tokens, amount_token, txid
 
 
 def _continuation_tokens(row: list[Word]) -> list[str]:
@@ -102,19 +105,24 @@ def _continuation_tokens(row: list[Word]) -> list[str]:
 
 
 def _build_transaction(
-    date_str: str,
+    datetime_str: str,
     narration_tokens: list[str],
     amount_token: str,
     txid: str | None,
     continuation_tokens: list[str],
 ) -> Transaction:
-    parsed_dt = datetime.strptime(date_str, "%m/%d/%Y")
+    # PalmPay row carries full timestamp ("MM/DD/YYYY HH:MM:SS AM/PM").
+    # Falls back to date-only when the row lacks time tokens.
+    try:
+        parsed_dt = datetime.strptime(datetime_str, "%m/%d/%Y %I:%M:%S %p")
+    except ValueError:
+        parsed_dt = datetime.strptime(datetime_str.split()[0], "%m/%d/%Y")
     amount = _parse_amount(amount_token)
     debit = -amount if amount < 0 else Decimal("0")
     credit = amount if amount > 0 else Decimal("0")
     narration = " ".join(narration_tokens + continuation_tokens).strip()
     return Transaction(
-        date=parsed_dt.date(),
+        date=parsed_dt,
         narration=narration,
         debit=debit,
         credit=credit,
