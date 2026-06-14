@@ -25,11 +25,17 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .._layout import classify, from_pymupdf_words, group_by_baseline
+from .._layout import classify
 from .._pymupdf import rect as _rect
 from ..parsers.fbn import COL_DETAIL, COL_REF
 from . import register
-from ._shared import redact_range, redact_word, shape_preserve
+from ._shared import (
+    RegexSweep,
+    apply_regex_sweeps,
+    page_rows,
+    redact_word,
+    shape_preserve,
+)
 from .base import Redactor
 
 HEADER_LABELS: dict[str, str] = {
@@ -41,6 +47,11 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 ACCT_NUM_RE = re.compile(r"\b\d{10}\b")
 
 ROW_TOL = 4.0
+
+SWEEPS: tuple[RegexSweep, ...] = (
+    (PHONE_RE, "0800000000", "phone"),
+    (EMAIL_RE, "test@example.com", "email"),
+)
 
 
 class FBNRedactor(Redactor):
@@ -88,19 +99,9 @@ class FBNRedactor(Redactor):
         pending_text: list[tuple[Any, str]],
         audit: list[str],
     ) -> None:
-        rows = group_by_baseline(from_pymupdf_words(page.get_text("words")), ROW_TOL)
-
-        for row in rows:
-            line_text = " ".join(w.text for w in row)
+        for row in page_rows(page, ROW_TOL):
             covered: set[int] = set()
-
-            for regex, replacement, label in (
-                (PHONE_RE, "0800000000", "phone"),
-                (EMAIL_RE, "test@example.com", "email"),
-            ):
-                for m in regex.finditer(line_text):
-                    redact_range(page, row, m.start(), m.end(), replacement, covered, pending_text)
-                    audit.append(f"{label}: {m.group(0)!r} -> {replacement!r}")
+            apply_regex_sweeps(page, row, SWEEPS, pending_text, audit, covered)
 
             for idx, w in enumerate(row):
                 if idx in covered:

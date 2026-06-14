@@ -6,10 +6,13 @@ anchors, narration vocab) rather than how to talk to pymupdf.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from .._layout import Word
+from .._layout import Word, from_pymupdf_words, group_by_baseline
 from .._pymupdf import rect as _rect
+
+RegexSweep = tuple[re.Pattern[str], str, str]  # (pattern, replacement, audit label)
 
 
 def shape_preserve(text: str) -> str:
@@ -39,6 +42,29 @@ def redact_word(
     page.add_redact_annot(r, fill=(1, 1, 1))
     if replacement:
         pending_text.append((r, replacement))
+
+
+def page_rows(page: Any, row_tol: float = 4.0) -> list[list[Word]]:
+    """Group a pymupdf page's words into visual rows, ready for redaction."""
+    return group_by_baseline(from_pymupdf_words(page.get_text("words")), row_tol)
+
+
+def apply_regex_sweeps(
+    page: Any,
+    row: list[Word],
+    sweeps: tuple[RegexSweep, ...],
+    pending_text: list[tuple[Any, str]],
+    audit: list[str],
+    covered: set[int],
+) -> None:
+    """Run each (regex, replacement, label) over the row's joined text and
+    redact the covering bbox in-place. Marks word indices as `covered` so
+    downstream column-blank loops don't double-redact."""
+    line_text = " ".join(w.text for w in row)
+    for regex, replacement, label in sweeps:
+        for m in regex.finditer(line_text):
+            redact_range(page, row, m.start(), m.end(), replacement, covered, pending_text)
+            audit.append(f"{label}: {m.group(0)!r} -> {replacement!r}")
 
 
 def redact_range(

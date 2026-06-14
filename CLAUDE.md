@@ -70,14 +70,18 @@ bankstract/
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
 │       │   ├── base.py        Parser ABC
+│       │   ├── _common.py     first_page_text + extract_words_per_page
+│       │   ├── _columnar.py   column_of / row_columns / walk_rows (shared by fbn + zenith)
 │       │   ├── palmpay.py
-│       │   └── fbn.py
+│       │   ├── fbn.py
+│       │   └── zenith.py
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
 │           ├── base.py        Redactor ABC + RedactReport (template-method)
-│           ├── _shared.py     redact_word / redact_range / shape_preserve
+│           ├── _shared.py     redact_word / redact_range / shape_preserve / page_rows / apply_regex_sweeps
 │           ├── palmpay.py     phrase-based
-│           └── fbn.py         column-aware aggressive blank
+│           ├── fbn.py         column-aware aggressive blank
+│           └── zenith.py      column-aware aggressive blank (skips above table header)
 ├── tests/
 │   ├── test_reconcile.py      bank-agnostic invariant tests
 │   └── <bank>/                one folder per bank, mirrors src/ layout

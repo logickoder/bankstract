@@ -3,6 +3,7 @@
   "language": "en",
   "words": [
     "abstractmethod",
+    "ALERTZ",
     "alnum",
     "ampm",
     "annot",
@@ -37,6 +38,7 @@
     "redactors",
     "redactions",
     "sdist",
+    "TBILLS",
     "unparseable",
     "Unparseable",
     "unredacted",
@@ -44,6 +46,9 @@
     "versiral",
     "wenyan",
     "wher",
-    "YNAB"
+    "YNAB",
+    "Zenith",
+    "zenith",
+    "zenithbank"
   ]
 }

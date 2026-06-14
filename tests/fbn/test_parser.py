@@ -4,13 +4,8 @@ import pytest
 
 from bankstract._layout import Word, classify
 from bankstract.parsers import get
-from bankstract.parsers.fbn import (
-    CHROME_MARKERS,
-    _column_of,
-    _is_chrome_row,
-    _is_tx_row,
-    _row_columns,
-)
+from bankstract.parsers._columnar import column_of, row_columns
+from bankstract.parsers.fbn import CHROME_MARKERS, COLUMNS, _is_chrome_row, _is_tx_row
 from bankstract.reconcile import reconcile, verify_totals
 from bankstract.schema import ParseResult
 
@@ -34,14 +29,14 @@ def _w(x0: float, text: str) -> Word:
 
 
 def test_column_of_buckets() -> None:
-    assert _column_of(_w(54, "18-Mar-2026")) == "date"
-    assert _column_of(_w(106, "S44787493")) == "ref"
-    assert _column_of(_w(158, "FIP:LIT:PLP/")) == "detail"
-    assert _column_of(_w(314, "18-Mar-2026")) == "value_date"
-    assert _column_of(_w(387, "200,000.00")) == "withdrawal"
-    assert _column_of(_w(464, "0.00")) == "deposit"
-    assert _column_of(_w(510, "332,878.27")) == "balance"
-    assert _column_of(_w(0, "")) is None
+    assert column_of(_w(54, "18-Mar-2026"), COLUMNS) == "date"
+    assert column_of(_w(106, "S44787493"), COLUMNS) == "ref"
+    assert column_of(_w(158, "FIP:LIT:PLP/"), COLUMNS) == "detail"
+    assert column_of(_w(314, "18-Mar-2026"), COLUMNS) == "value_date"
+    assert column_of(_w(387, "200,000.00"), COLUMNS) == "withdrawal"
+    assert column_of(_w(464, "0.00"), COLUMNS) == "deposit"
+    assert column_of(_w(510, "332,878.27"), COLUMNS) == "balance"
+    assert column_of(_w(0, ""), COLUMNS) is None
 
 
 def test_is_tx_row() -> None:
@@ -54,13 +49,13 @@ def test_is_tx_row() -> None:
         _w(464, "0.00"),
         _w(510, "332,878.27"),
     ]
-    assert _is_tx_row(_row_columns(row))
+    assert _is_tx_row(row_columns(row, COLUMNS))
 
     no_date = [_w(158, "FUNDS"), _w(180, "RefXYZ")]
-    assert not _is_tx_row(_row_columns(no_date))
+    assert not _is_tx_row(row_columns(no_date, COLUMNS))
 
     no_balance = [_w(54, "18-Mar-2026"), _w(158, "Stamp")]
-    assert not _is_tx_row(_row_columns(no_balance))
+    assert not _is_tx_row(row_columns(no_balance, COLUMNS))
 
 
 def test_chrome_markers_terminate_continuation() -> None:

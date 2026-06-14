@@ -14,18 +14,16 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 from .._layout import (
     NAIRA_TOK,
     Word,
     classify,
-    from_pdfplumber_words,
     group_by_baseline,
 )
-from .._pdfplumber import open_doc
 from ..schema import ParseError, ParseResult, Transaction
 from . import register
+from ._common import extract_words_per_page, first_page_text
 from .base import Parser
 
 HEADER_MARKERS: tuple[str, ...] = ("PalmPay", "Palmpay", "PALMPAY")
@@ -135,22 +133,11 @@ class PalmPayParser(Parser):
     bank = "palmpay"
 
     def detect(self, pdf_path: Path) -> bool:
-        try:
-            with open_doc(pdf_path) as pdf:
-                pages: list[Any] = pdf.pages
-                if not pages:
-                    return False
-                first_page_text: str = pages[0].extract_text() or ""
-        except Exception:
-            return False
-        return any(marker in first_page_text for marker in HEADER_MARKERS)
+        text = first_page_text(pdf_path)
+        return any(marker in text for marker in HEADER_MARKERS)
 
     def parse(self, pdf_path: Path) -> ParseResult:
-        with open_doc(pdf_path) as pdf:
-            words_per_page: list[list[Word]] = [
-                from_pdfplumber_words(page.extract_words()) for page in pdf.pages
-            ]
-
+        words_per_page = extract_words_per_page(pdf_path)
         if not words_per_page:
             raise ParseError("empty PDF", format_version=FORMAT_VERSION)
 

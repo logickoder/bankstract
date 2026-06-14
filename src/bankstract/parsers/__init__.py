@@ -24,3 +24,4 @@ def all_parsers() -> dict[str, Parser]:
 
 from . import fbn as fbn  # noqa: E402
 from . import palmpay as palmpay  # noqa: E402
+from . import zenith as zenith  # noqa: E402

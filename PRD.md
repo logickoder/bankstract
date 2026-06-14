@@ -29,7 +29,8 @@ bankstract closes that gap with one clean tool, one plugin contract, and communi
 | ------- | -------------------------------------------------------------------------------- |
 | v0.1    | PalmPay only. CLI + plugin contract + reconciliation + tests + CI. PyPI release. |
 | v0.2    | First Bank parser + OCR fallback for scanned statements.                         |
-| v0.3+   | GTB, Kuda, Opay, Stanbic, Wise, Bamboo, Risevest — community PRs.                |
+| v0.3    | Zenith Bank parser (running-balance, multi-page).                                |
+| v0.4+   | GTB, Kuda, Opay, Stanbic, Wise, Bamboo, Risevest — community PRs.                |
 
 **Out of scope:** category inference, ML-based parsing, GUI, pushing data into third-party trackers (those belong in downstream tools).
 
@@ -121,14 +122,18 @@ bankstract/
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
 │       │   ├── base.py        Parser ABC
+│       │   ├── _common.py     pdfplumber boundary helpers (text/words)
+│       │   ├── _columnar.py   shared column-table walker (fbn + zenith)
 │       │   ├── palmpay.py
-│       │   └── fbn.py
+│       │   ├── fbn.py
+│       │   └── zenith.py
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
 │           ├── base.py        Redactor ABC + RedactReport (template-method)
-│           ├── _shared.py     shared redact primitives
+│           ├── _shared.py     redact + row-walk + regex-sweep primitives
 │           ├── palmpay.py
-│           └── fbn.py
+│           ├── fbn.py
+│           └── zenith.py
 ├── tests/
 │   ├── test_reconcile.py      bank-agnostic
 │   └── <bank>/                one folder per bank
