@@ -21,7 +21,7 @@ wheels = [
 
 [[package]]
 name = "bankstract"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -34,11 +34,6 @@ dependencies = [
 camelot = [
     { name = "camelot-py" },
 ]
-dev = [
-    { name = "build" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
 ocr = [
     { name = "pillow" },
     { name = "pytesseract" },
@@ -46,13 +41,15 @@ ocr = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "build" },
     { name = "pre-commit" },
     { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "build", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "camelot-py", extras = ["cv"], marker = "extra == 'camelot'", specifier = ">=0.11" },
     { name = "click", specifier = ">=8.1" },
     { name = "pdfplumber", specifier = ">=0.11" },
@@ -60,15 +57,16 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pymupdf", specifier = ">=1.27.2" },
     { name = "pytesseract", marker = "extra == 'ocr'", specifier = ">=0.3.10" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
 ]
-provides-extras = ["ocr", "camelot", "dev"]
+provides-extras = ["ocr", "camelot"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "build", specifier = ">=1.0" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pyright", specifier = ">=1.1.410" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "ruff", specifier = ">=0.5" },
 ]
 
 [[package]]

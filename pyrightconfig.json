@@ -13,7 +13,8 @@
   "executionEnvironments": [
     {
       "root": "tests",
-      "reportPrivateUsage": "none"
+      "reportPrivateUsage": "none",
+      "reportUntypedFunctionDecorator": "none"
     }
   ]
 }

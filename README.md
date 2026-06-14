@@ -14,9 +14,9 @@ bankstract list
 
 | Bank       | Status        |
 | ---------- | ------------- |
-| PalmPay    | v0.4 — alpha  |
-| First Bank | v0.4 — alpha  |
-| Zenith     | v0.4 — alpha  |
+| PalmPay    | v0.5 — alpha  |
+| First Bank | v0.5 — alpha  |
+| Zenith     | v0.5 — alpha  |
 
 ## Install
 
