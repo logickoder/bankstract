@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,19 @@ from bankstract.reconcile import verify_totals
 from bankstract.schema import ParseResult
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+SAMPLE = FIXTURE_DIR / "sample.pdf"
+LOCAL = FIXTURE_DIR / "_local" / "statement.pdf"
+
+_FIXTURES = [
+    pytest.param(SAMPLE, id="sample"),
+    pytest.param(
+        LOCAL,
+        id="local",
+        marks=pytest.mark.skipif(
+            not LOCAL.exists(), reason="raw fixture absent (CI / fresh clone)"
+        ),
+    ),
+]
 
 
 def test_parser_registered() -> None:
@@ -94,14 +108,10 @@ def test_continuation_tokens_extracts_text_only() -> None:
     assert _continuation_tokens(row) == ["ACME", "CORP"]
 
 
-@pytest.mark.skipif(
-    not any(FIXTURE_DIR.glob("*.pdf")),
-    reason="no palmpay fixture PDF — drop a redacted sample in tests/fixtures/palmpay/",
-)
+@pytest.mark.skipif(not SAMPLE.exists(), reason="no palmpay sample fixture")
 def test_parses_redacted_fixture() -> None:
     parser = get("palmpay")
-    pdf = next(FIXTURE_DIR.glob("*.pdf"))
-    result: ParseResult = parser.parse(pdf)
+    result: ParseResult = parser.parse(SAMPLE)
     assert result.format_version == "palmpay-2026-01"
     assert len(result.transactions) > 0
     assert result.total_credit is not None
@@ -116,3 +126,25 @@ def test_parses_redacted_fixture() -> None:
         total_credit=result.total_credit,
         total_debit=result.total_debit,
     )
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES)
+def test_metadata_extracted(fixture: Path) -> None:
+    parser = get("palmpay")
+    result = parser.parse(fixture)
+    md = result.metadata
+    assert md is not None
+    assert md.bank == "palmpay"
+    assert md.account_holder is not None
+    assert md.account_number_masked is not None and md.account_number_masked.startswith("X")
+    assert md.statement_period_start is not None
+    assert md.statement_period_end is not None
+    assert md.statement_period_start <= md.statement_period_end
+    # PalmPay statements omit a running-balance column → no opening/closing.
+    assert md.opening_balance is None
+    assert md.closing_balance is None
+    if fixture == SAMPLE:
+        assert md.account_holder == "TEST USER"
+        assert md.account_number_masked == "XXXXXX0000"
+        assert md.statement_period_start == datetime(2026, 6, 5)
+        assert md.statement_period_end == datetime(2026, 6, 13)

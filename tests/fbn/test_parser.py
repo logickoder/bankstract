@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,19 @@ from bankstract.reconcile import reconcile, verify_totals
 from bankstract.schema import ParseResult
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+SAMPLE = FIXTURE_DIR / "sample.pdf"
+LOCAL = FIXTURE_DIR / "_local" / "statement.pdf"
+
+_FIXTURES = [
+    pytest.param(SAMPLE, id="sample"),
+    pytest.param(
+        LOCAL,
+        id="local",
+        marks=pytest.mark.skipif(
+            not LOCAL.exists(), reason="raw fixture absent (CI / fresh clone)"
+        ),
+    ),
+]
 
 
 def test_parser_registered() -> None:
@@ -67,24 +81,18 @@ def test_chrome_markers_terminate_continuation() -> None:
     assert not _is_chrome_row([_w(158, "FIP:LIT:PLP/"), _w(220, "FOO")])
 
 
-@pytest.mark.skipif(
-    not any(FIXTURE_DIR.glob("*.pdf")),
-    reason="no fbn fixture PDF — drop a redacted sample in tests/fixtures/fbn/",
-)
+@pytest.mark.skipif(not SAMPLE.exists(), reason="no fbn sample fixture")
 def test_parses_redacted_fixture() -> None:
     parser = get("fbn")
-    pdf = next(FIXTURE_DIR.glob("*.pdf"))
-    result: ParseResult = parser.parse(pdf)
+    result: ParseResult = parser.parse(SAMPLE)
     assert result.format_version == "fbn-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:
         assert tx.debit > 0 or tx.credit > 0
         assert tx.balance is not None
 
-    # Row-wise reconcile MUST pass (FBN has a running balance column).
     reconcile(result.transactions)
 
-    # Totals are also extracted from the header; assert they match the sum.
     assert result.total_credit is not None
     assert result.total_debit is not None
     verify_totals(
@@ -92,3 +100,29 @@ def test_parses_redacted_fixture() -> None:
         total_credit=result.total_credit,
         total_debit=result.total_debit,
     )
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES)
+def test_metadata_extracted(fixture: Path) -> None:
+    parser = get("fbn")
+    result = parser.parse(fixture)
+    md = result.metadata
+    assert md is not None
+    assert md.bank == "fbn"
+    assert md.account_holder is not None
+    assert md.account_number_masked is not None and md.account_number_masked.startswith("X")
+    # FBN statement header has no explicit period block.
+    assert md.statement_period_start is None
+    assert md.statement_period_end is None
+    assert md.opening_balance is not None
+    assert md.closing_balance is not None
+    assert md.closing_balance == result.transactions[-1].balance
+    # Reverse-computed opening balance must reconcile with the first tx.
+    first = result.transactions[0]
+    assert first.balance is not None
+    assert md.opening_balance == first.balance + first.debit - first.credit
+    if fixture == SAMPLE:
+        assert md.account_holder == "TEST USER"
+        assert md.account_number_masked == "XXXXXX0000"
+        assert md.opening_balance == Decimal("531135.04")
+        assert md.closing_balance == Decimal("438664.68")

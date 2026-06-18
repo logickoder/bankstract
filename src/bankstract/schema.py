@@ -23,12 +23,26 @@ class Transaction(BaseModel):
     currency: str = "NGN"
 
 
+@dataclass(frozen=True)
+class StatementMetadata:
+    bank: str | None = None
+    account_holder: str | None = None
+    # Mask all but last 4 digits ("XXXXXX1234"). Parsers redact at extract
+    # time so the field is safe to log / persist without further scrubbing.
+    account_number_masked: str | None = None
+    statement_period_start: datetime | None = None
+    statement_period_end: datetime | None = None
+    opening_balance: Decimal | None = None
+    closing_balance: Decimal | None = None
+
+
 @dataclass
 class ParseResult:
     transactions: list[Transaction] = field(default_factory=list)
     total_credit: Decimal | None = None
     total_debit: Decimal | None = None
     format_version: str | None = None
+    metadata: StatementMetadata | None = None
 
 
 class ParseError(Exception):

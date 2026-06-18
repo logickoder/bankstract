@@ -177,6 +177,7 @@ Rules:
 - Format-version detection tested against multiple versions when more than one is available
 - Each parser has a sibling `tests/test_redactor_<bank>.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)
 - No mocking of `pdfplumber` / `camelot` / `pytesseract` — tests run against real fixture PDFs
+- Every parser/metadata test parametrizes over both `tests/<bank>/fixtures/sample.pdf` (committed, redacted) AND `tests/<bank>/fixtures/_local/statement.pdf` (gitignored, raw) when present. Skip the local case via `pytest.mark.skipif(not _local.exists())` so CI stays green without raw fixtures. The raw fixture catches metadata-regex regressions that placeholder values silently pass
 
 ## OUT OF SCOPE — DO NOT ADD
 

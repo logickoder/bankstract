@@ -11,9 +11,9 @@ total_debit so reconciliation falls back to a sum-based check
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 
 from .._layout import (
     NAIRA_TOK,
@@ -21,12 +21,22 @@ from .._layout import (
     classify,
     group_by_baseline,
 )
-from ..schema import ParseError, ParseResult, Transaction
+from .._pdfplumber import PdfSource
+from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._common import extract_words_per_page, first_page_text
 from .base import Parser
 
-HEADER_MARKERS: tuple[str, ...] = ("PalmPay", "Palmpay", "PALMPAY")
+# Structural markers, not brand strings — the brand name doesn't always
+# survive fixture redaction, and substring "PalmPay" was previously a
+# false-positive surface. Both `Total Money In/Out` lines are unique to the
+# PalmPay statement layout we've observed.
+HEADER_MARKERS: tuple[str, ...] = (
+    "Total Money In",
+    "Total Money Out",
+    "Money In (NGN)",
+    "Money Out (NGN)",
+)
 
 FORMAT_VERSION = "palmpay-2026-01"
 
@@ -129,15 +139,51 @@ def _build_transaction(
     )
 
 
+_NAME_RE = re.compile(r"^Name\s*(.+?)\s*$", re.MULTILINE)
+_ACCT_RE = re.compile(r"Account Number\s+([\d\s]+?)(?:\s*$|\s{2,})", re.MULTILINE)
+_PERIOD_RE = re.compile(r"Statement Period\s+(\d{2}/\d{2}/\d{4})\s*[-–]\s*(\d{2}/\d{2}/\d{4})")
+
+
+def _mask_account(raw: str) -> str | None:
+    digits = "".join(c for c in raw if c.isdigit())
+    if not digits:
+        return None
+    if len(digits) <= 4:
+        return "X" * len(digits)
+    return "X" * (len(digits) - 4) + digits[-4:]
+
+
+def _parse_period_date(token: str) -> datetime | None:
+    try:
+        return datetime.strptime(token, "%m/%d/%Y")
+    except ValueError:
+        return None
+
+
+def _extract_metadata(text: str) -> StatementMetadata:
+    name_match = _NAME_RE.search(text)
+    acct_match = _ACCT_RE.search(text)
+    period_match = _PERIOD_RE.search(text)
+    return StatementMetadata(
+        bank="palmpay",
+        account_holder=name_match.group(1).strip() if name_match else None,
+        account_number_masked=_mask_account(acct_match.group(1)) if acct_match else None,
+        statement_period_start=_parse_period_date(period_match.group(1)) if period_match else None,
+        statement_period_end=_parse_period_date(period_match.group(2)) if period_match else None,
+        opening_balance=None,
+        closing_balance=None,
+    )
+
+
 class PalmPayParser(Parser):
     bank = "palmpay"
 
-    def detect(self, pdf_path: Path) -> bool:
-        text = first_page_text(pdf_path)
-        return any(marker in text for marker in HEADER_MARKERS)
+    def detect(self, source: PdfSource) -> bool:
+        text = first_page_text(source)
+        return all(marker in text for marker in HEADER_MARKERS)
 
-    def parse(self, pdf_path: Path) -> ParseResult:
-        words_per_page = extract_words_per_page(pdf_path)
+    def parse(self, source: PdfSource) -> ParseResult:
+        words_per_page = extract_words_per_page(source)
         if not words_per_page:
             raise ParseError("empty PDF", format_version=FORMAT_VERSION)
 
@@ -188,6 +234,7 @@ class PalmPayParser(Parser):
             total_credit=total_in,
             total_debit=total_out,
             format_version=FORMAT_VERSION,
+            metadata=_extract_metadata(first_page_text(source)),
         )
 
 

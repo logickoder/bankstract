@@ -68,12 +68,35 @@ Trusted-publisher setup (one-time, owner only): create a publisher at <https://p
 ## Usage
 
 ```bash
-bankstract <bank> <pdf> -o <csv>           # explicit parser
-bankstract auto <pdf> -o <csv>             # auto-detect via Parser.detect()
-bankstract list                            # show registered parsers
+bankstract <bank> <pdf> -o <out>               # explicit parser
+bankstract auto <pdf> -o <out>                 # auto-detect via Parser.detect_confidence()
+bankstract list                                # show registered parsers
+bankstract <bank> <pdf> -o out.json -f json    # JSON instead of CSV
+cat statement.pdf | bankstract auto - -o -     # stdin / stdout pipeline
 ```
 
-Unparseable blocks are written to a `.log` sidecar next to the output CSV.
+Pass `-` as the PDF arg to read from stdin, or `-` to `-o` to write to stdout. When stdout is the data sink, informational messages go to stderr so the data stream stays clean.
+
+Unparseable blocks are written to a `.log` sidecar next to the output file.
+
+## Python API
+
+```python
+import bankstract
+
+bankstract.list_parsers()           # ['fbn', 'palmpay', 'zenith']
+bankstract.detect("statement.pdf")  # 'palmpay' | None
+
+result = bankstract.parse("statement.pdf")            # auto-detect
+result = bankstract.parse(fp, bank="fbn")             # explicit; fp is BytesIO
+
+result.metadata.account_holder
+result.metadata.statement_period_start
+result.transactions[0].balance
+result.format_version
+```
+
+`bankstract.parse(source, *, bank=None)` accepts a `pathlib.Path`, a string path, or a seekable binary stream. Auto-detection picks the parser with the highest `detect_confidence` score. Every name re-exported from `bankstract` is part of the semver-stable surface; `bankstract._*` modules are internal.
 
 ## Reconciliation invariant
 

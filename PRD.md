@@ -8,13 +8,22 @@
 
 ## What
 
-Public Python CLI + library that converts Nigerian bank PDF statements into structured CSV. Plugin architecture — one parser module per bank.
+Public Python CLI + library that converts Nigerian bank PDF statements into structured CSV or JSON. Plugin architecture — one parser module per bank.
 
 ```bash
 bankstract palmpay statement.pdf -o out.csv
-bankstract auto unknown.pdf -o out.csv          # auto-detect bank
-bankstract fbn scanned.pdf -o out.csv --ocr     # force OCR
+bankstract palmpay statement.pdf -o out.json -f json
+bankstract auto unknown.pdf -o out.csv          # auto-detect via detect_confidence
+cat statement.pdf | bankstract auto - -o -      # stdin/stdout pipeline
 bankstract list                                 # show registered parsers
+```
+
+```python
+import bankstract
+result = bankstract.parse("statement.pdf")            # auto-detect
+result = bankstract.parse(fp, bank="fbn")             # explicit; fp is BytesIO
+result.metadata.account_holder
+result.transactions[0].balance
 ```
 
 ## Why
@@ -53,17 +62,23 @@ class Parser(ABC):
     bank: str  # module-level identifier (e.g. "palmpay", "fbn")
 
     @abstractmethod
-    def detect(self, pdf_path: Path) -> bool:
-        """Return True if this parser handles the given PDF (header/logo/text-marker match)."""
+    def detect(self, source: PdfSource) -> bool:
+        """True if this parser handles the given PDF (structural marker match)."""
 
     @abstractmethod
-    def parse(self, pdf_path: Path) -> ParseResult:
-        """Extract transactions and header totals. Raise ParseError on format mismatch."""
+    def parse(self, source: PdfSource) -> ParseResult:
+        """Extract transactions + metadata + header totals. Raise ParseError on format mismatch."""
+
+    def detect_confidence(self, source: PdfSource) -> float:
+        """Override to disambiguate when multiple parsers detect the same PDF.
+        Default: 1.0 on positive detection, 0.0 otherwise. Callers pick max."""
 ```
+
+`PdfSource = Path | IO[bytes]` — every entry point accepts either a filesystem path or a seekable binary stream (e.g. `io.BytesIO` from stdin).
 
 Parsers live in `src/bankstract/parsers/<bank>.py` and self-register via import side-effect in `parsers/__init__.py`. A parallel `Redactor` plugin tree under `src/bankstract/redactors/<bank>.py` produces committable fixtures from raw statements.
 
-### Transaction + ParseResult schema
+### Transaction + ParseResult + StatementMetadata schema
 
 ```python
 class Transaction(BaseModel):
@@ -76,12 +91,24 @@ class Transaction(BaseModel):
     currency: str = "NGN"
 
 
+@dataclass(frozen=True)
+class StatementMetadata:
+    bank: str | None = None
+    account_holder: str | None = None
+    account_number_masked: str | None = None     # last 4 digits only ("XXXXXX1234")
+    statement_period_start: datetime | None = None
+    statement_period_end: datetime | None = None
+    opening_balance: Decimal | None = None
+    closing_balance: Decimal | None = None
+
+
 @dataclass
 class ParseResult:
     transactions: list[Transaction]
     total_credit: Decimal | None = None   # from statement header
     total_debit: Decimal | None = None
     format_version: str | None = None
+    metadata: StatementMetadata | None = None
 ```
 
 Amounts are stored as `Decimal` (not float — financial precision). The Naira sign is stripped before parsing.
@@ -117,8 +144,10 @@ bankstract/
 │       ├── reconcile.py       reconcile() + verify_totals()
 │       ├── _layout.py         Word dataclass + classify + Y-grouping (shared)
 │       ├── _pymupdf.py        typed facade over pymupdf
-│       ├── _pdfplumber.py     typed facade over pdfplumber
+│       ├── _pdfplumber.py     typed facade over pdfplumber + PdfSource alias
+│       ├── _api.py            lib API: parse() / detect() / list_parsers()
 │       ├── writers/csv.py
+│       ├── writers/json.py
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
 │       │   ├── base.py        Parser ABC
@@ -148,11 +177,14 @@ bankstract/
 ## CLI surface
 
 ```bash
-bankstract <bank> <pdf> -o <csv>           # explicit parser
-bankstract auto <pdf> -o <csv>             # detect via Parser.detect()
-bankstract <bank> <pdf> -o <csv> --ocr     # force OCR path
-bankstract list                            # show registered parsers + status
+bankstract <bank> <pdf> -o <out>                # explicit parser, CSV default
+bankstract <bank> <pdf> -o <out> -f json        # JSON instead of CSV
+bankstract auto <pdf> -o <out>                  # detect via detect_confidence (max wins)
+bankstract <bank> - -o -                        # stdin → stdout pipeline (`-` sentinel)
+bankstract list                                 # show registered parsers
 ```
+
+`-` as the PDF arg reads from stdin into a `BytesIO`. `-` as `-o` writes to stdout; summary lines redirect to stderr so the data stream stays clean for piping.
 
 ## Risks
 

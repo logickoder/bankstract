@@ -1,3 +1,5 @@
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,19 @@ from bankstract.reconcile import reconcile
 from bankstract.schema import ParseResult
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+SAMPLE = FIXTURE_DIR / "sample.pdf"
+LOCAL = FIXTURE_DIR / "_local" / "statement.pdf"
+
+_FIXTURES = [
+    pytest.param(SAMPLE, id="sample"),
+    pytest.param(
+        LOCAL,
+        id="local",
+        marks=pytest.mark.skipif(
+            not LOCAL.exists(), reason="raw fixture absent (CI / fresh clone)"
+        ),
+    ),
+]
 
 
 def test_parser_registered() -> None:
@@ -80,14 +95,10 @@ def test_chrome_row_matches_structural_patterns_not_narration_credit() -> None:
     assert _is_chrome_row([_w(258, "ALERTZ"), _w(287, "VERIFICATION")])
 
 
-@pytest.mark.skipif(
-    not any(FIXTURE_DIR.glob("*.pdf")),
-    reason="no zenith fixture PDF — drop a redacted sample in tests/zenith/fixtures/",
-)
+@pytest.mark.skipif(not SAMPLE.exists(), reason="no zenith sample fixture")
 def test_parses_redacted_fixture() -> None:
     parser = get("zenith")
-    pdf = next(FIXTURE_DIR.glob("*.pdf"))
-    result: ParseResult = parser.parse(pdf)
+    result: ParseResult = parser.parse(SAMPLE)
     assert result.format_version == "zenith-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:
@@ -98,3 +109,30 @@ def test_parses_redacted_fixture() -> None:
     # invariant (the statement TOTALS row mixes opening balance into the
     # credit column so it isn't a clean period sum — see parser docstring).
     reconcile(result.transactions)
+
+
+@pytest.mark.parametrize("fixture", _FIXTURES)
+def test_metadata_extracted(fixture: Path) -> None:
+    parser = get("zenith")
+    result = parser.parse(fixture)
+    md = result.metadata
+    assert md is not None
+    assert md.bank == "zenith"
+    assert md.account_holder is not None
+    assert md.account_number_masked is not None and md.account_number_masked.startswith("X")
+    assert md.statement_period_start is not None
+    assert md.statement_period_end is not None
+    assert md.statement_period_start < md.statement_period_end
+    assert md.opening_balance is not None
+    assert md.closing_balance is not None
+    assert md.closing_balance == result.transactions[-1].balance
+    first = result.transactions[0]
+    assert first.balance is not None
+    assert md.opening_balance == first.balance + first.debit - first.credit
+    if fixture == SAMPLE:
+        assert md.account_holder == "TEST USER"
+        assert md.account_number_masked == "XXXXXX0000"
+        assert md.statement_period_start == datetime(2025, 6, 30)
+        assert md.statement_period_end == datetime(2026, 2, 28)
+        assert md.opening_balance == Decimal("13342.59")
+        assert md.closing_balance == Decimal("19657.44")

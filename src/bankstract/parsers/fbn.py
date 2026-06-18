@@ -17,12 +17,13 @@ their detail-column tokens append to the pending transaction.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 
 from .._layout import Word, classify, group_by_baseline
-from ..schema import ParseError, ParseResult, Transaction
+from .._pdfplumber import PdfSource
+from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._columnar import (
     ColumnSpec,
@@ -142,15 +143,50 @@ def _extract_totals(
     return (total_credit, total_debit)
 
 
+_HOLDER_RE = re.compile(r"Account Name\s*:\s*(.+?)\s*$", re.MULTILINE)
+_ACCT_RE = re.compile(r"Account No\s*:\s*(\d+)", re.MULTILINE)
+
+
+def _mask_account(raw: str) -> str | None:
+    digits = "".join(c for c in raw if c.isdigit())
+    if not digits:
+        return None
+    if len(digits) <= 4:
+        return "X" * len(digits)
+    return "X" * (len(digits) - 4) + digits[-4:]
+
+
+def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMetadata:
+    holder = _HOLDER_RE.search(text)
+    acct = _ACCT_RE.search(text)
+    opening: Decimal | None = None
+    closing: Decimal | None = None
+    if transactions:
+        first = transactions[0]
+        if first.balance is not None:
+            opening = first.balance + first.debit - first.credit
+        last = transactions[-1]
+        closing = last.balance
+    return StatementMetadata(
+        bank="fbn",
+        account_holder=holder.group(1).strip() if holder else None,
+        account_number_masked=_mask_account(acct.group(1)) if acct else None,
+        statement_period_start=None,
+        statement_period_end=None,
+        opening_balance=opening,
+        closing_balance=closing,
+    )
+
+
 class FBNParser(Parser):
     bank = "fbn"
 
-    def detect(self, pdf_path: Path) -> bool:
-        text = first_page_text(pdf_path)
+    def detect(self, source: PdfSource) -> bool:
+        text = first_page_text(source)
         return all(marker in text for marker in HEADER_MARKERS)
 
-    def parse(self, pdf_path: Path) -> ParseResult:
-        words_per_page = extract_words_per_page(pdf_path)
+    def parse(self, source: PdfSource) -> ParseResult:
+        words_per_page = extract_words_per_page(source)
         if not words_per_page:
             raise ParseError("empty PDF", format_version=FORMAT_VERSION)
 
@@ -177,6 +213,7 @@ class FBNParser(Parser):
             total_credit=total_credit,
             total_debit=total_debit,
             format_version=FORMAT_VERSION,
+            metadata=_extract_metadata(first_page_text(source), transactions),
         )
 
 
