@@ -47,8 +47,9 @@ def test_write_json_to_path(tmp_path: Path) -> None:
     count = write_json(_sample_result(), out)
     assert count == 2
     payload = json.loads(out.read_text())
-    assert payload["bank"] == "acme"
+    assert "bank" not in payload  # canonical bank lives at metadata.bank
     assert payload["format_version"] == "acme-2026-01"
+    assert payload["metadata"]["bank"] == "acme"
     assert payload["metadata"]["account_holder"] == "QUUX"
     assert payload["metadata"]["account_number_masked"] == "XXXXXX1234"
     assert payload["metadata"]["opening_balance"] == "1000.00"
@@ -66,7 +67,7 @@ def test_write_json_to_stream() -> None:
     buf = StringIO()
     write_json(_sample_result(), buf)
     payload = json.loads(buf.getvalue())
-    assert payload["bank"] == "acme"
+    assert payload["metadata"]["bank"] == "acme"
 
 
 def test_write_json_handles_none_metadata() -> None:
@@ -74,7 +75,7 @@ def test_write_json_handles_none_metadata() -> None:
     buf = StringIO()
     write_json(result, buf)
     payload = json.loads(buf.getvalue())
-    assert payload["bank"] is None
+    assert "bank" not in payload
     assert payload["metadata"] is None
     assert payload["totals"] == {"credit": None, "debit": None}
     assert payload["transactions"] == []

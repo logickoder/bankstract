@@ -19,9 +19,9 @@ def _encode(value: Any) -> Any:
 
 
 def _result_to_dict(result: ParseResult) -> dict[str, Any]:
-    bank = result.metadata.bank if result.metadata is not None else None
+    # No top-level `bank` field — `metadata.bank` is canonical and the only
+    # source of truth. Shipping both would create a drift surface.
     return {
-        "bank": bank,
         "format_version": result.format_version,
         "metadata": result.metadata,
         "totals": {

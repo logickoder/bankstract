@@ -22,7 +22,7 @@ def test_stdin_to_stdout_json_auto() -> None:
         start = result.output.index("{")
         end = result.output.rindex("}") + 1
         payload = json.loads(result.output[start:end])
-    assert payload["bank"] == "palmpay"
+    assert payload["metadata"]["bank"] == "palmpay"
     assert payload["metadata"]["account_holder"] == "TEST USER"
     assert len(payload["transactions"]) > 0
 
@@ -42,7 +42,7 @@ def test_file_to_file_json(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert out.exists()
     payload = json.loads(out.read_text())
-    assert payload["bank"] == "palmpay"
+    assert payload["metadata"]["bank"] == "palmpay"
 
 
 def test_missing_file_errors() -> None:
