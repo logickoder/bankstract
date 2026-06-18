@@ -43,6 +43,13 @@ class ParseResult:
     total_debit: Decimal | None = None
     format_version: str | None = None
     metadata: StatementMetadata | None = None
+    # Set False when the statement's balance column doesn't satisfy
+    # `prev.balance ± debit/credit == curr.balance` despite carrying per-row
+    # balances (e.g. OPay's wallet column omits implicit OWealth side-effects
+    # that move funds between sub-accounts atomically). Parsers that opt out
+    # MUST populate total_credit/total_debit so verify_totals still catches
+    # silently-dropped rows.
+    row_wise_reconcilable: bool = True
 
 
 class ParseError(Exception):

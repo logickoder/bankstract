@@ -14,9 +14,10 @@ bankstract list
 
 | Bank       | Status        |
 | ---------- | ------------- |
-| PalmPay    | v0.7 — alpha  |
-| First Bank | v0.7 — alpha  |
-| Zenith     | v0.7 — alpha  |
+| PalmPay    | v0.8 — alpha  |
+| First Bank | v0.8 — alpha  |
+| Zenith     | v0.8 — alpha  |
+| OPay       | v0.8 — alpha  |
 
 ## Install
 
@@ -84,7 +85,7 @@ Unparseable blocks are written to a `.log` sidecar next to the output file.
 ```python
 import bankstract
 
-bankstract.list_parsers()           # ['fbn', 'palmpay', 'zenith']
+bankstract.list_parsers()           # ['fbn', 'opay', 'palmpay', 'zenith']
 bankstract.detect("statement.pdf")  # 'palmpay' | None
 
 result = bankstract.parse("statement.pdf")            # auto-detect

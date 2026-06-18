@@ -75,6 +75,7 @@ def test_per_parser_scores_are_disjoint_across_fixtures() -> None:
         "palmpay": base / "palmpay" / "fixtures" / "sample.pdf",
         "fbn": base / "fbn" / "fixtures" / "sample.pdf",
         "zenith": base / "zenith" / "fixtures" / "sample.pdf",
+        "opay": base / "opay" / "fixtures" / "sample.pdf",
     }
     for bank, fixture in fixtures.items():
         own = get(bank).detect_confidence(fixture)

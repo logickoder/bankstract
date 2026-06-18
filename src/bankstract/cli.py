@@ -121,7 +121,8 @@ def _run(parser: Parser, source: PdfSource, output: str, fmt: Format, no_reconci
                     total_credit=result.total_credit,
                     total_debit=result.total_debit,
                 )
-            reconcile(result.transactions)
+            if result.row_wise_reconcilable:
+                reconcile(result.transactions)
         except ReconciliationError as exc:
             raise click.ClickException(f"reconciliation failed: {exc}") from exc
 
