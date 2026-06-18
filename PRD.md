@@ -39,7 +39,9 @@ bankstract closes that gap with one clean tool, one plugin contract, and communi
 | v0.1    | PalmPay only. CLI + plugin contract + reconciliation + tests + CI. PyPI release. |
 | v0.2    | First Bank parser + OCR fallback for scanned statements.                         |
 | v0.3    | Zenith Bank parser (running-balance, multi-page).                                |
-| v0.4+   | GTB, Kuda, Opay, Stanbic, Wise, Bamboo, Risevest — community PRs.                |
+| v0.6    | Python lib API, JSON writer, StatementMetadata, stdin/stdout pipes.              |
+| v0.7    | Per-parser `detect_confidence` disambiguation, FBN period extraction.            |
+| v0.8+   | GTB, Kuda, Opay, Stanbic, Wise, Bamboo, Risevest — community PRs.                |
 
 **Out of scope:** category inference, ML-based parsing, GUI, pushing data into third-party trackers (those belong in downstream tools).
 

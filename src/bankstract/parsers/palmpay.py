@@ -182,6 +182,10 @@ class PalmPayParser(Parser):
         text = first_page_text(source)
         return all(marker in text for marker in HEADER_MARKERS)
 
+    def detect_confidence(self, source: PdfSource) -> float:
+        text = first_page_text(source)
+        return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
+
     def parse(self, source: PdfSource) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:

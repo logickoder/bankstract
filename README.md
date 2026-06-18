@@ -14,9 +14,9 @@ bankstract list
 
 | Bank       | Status        |
 | ---------- | ------------- |
-| PalmPay    | v0.6 — alpha  |
-| First Bank | v0.6 — alpha  |
-| Zenith     | v0.6 — alpha  |
+| PalmPay    | v0.7 — alpha  |
+| First Bank | v0.7 — alpha  |
+| Zenith     | v0.7 — alpha  |
 
 ## Install
 
@@ -96,7 +96,24 @@ result.transactions[0].balance
 result.format_version
 ```
 
-`bankstract.parse(source, *, bank=None)` accepts a `pathlib.Path`, a string path, or a seekable binary stream. Auto-detection picks the parser with the highest `detect_confidence` score. Every name re-exported from `bankstract` is part of the semver-stable surface; `bankstract._*` modules are internal.
+### Public surface (semver-locked)
+
+Only the names re-exported from `bankstract` are part of the semver contract:
+
+| Name                  | Kind          | Purpose                                             |
+| --------------------- | ------------- | --------------------------------------------------- |
+| `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
+| `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
+| `list_parsers`        | function      | sorted bank names                                   |
+| `Parser`              | ABC           | base class for new parsers                          |
+| `Transaction`         | pydantic      | row schema                                          |
+| `StatementMetadata`   | dataclass     | account holder / period / opening + closing balance |
+| `ParseResult`         | dataclass     | `transactions[]`, totals, `format_version`, metadata |
+| `ParseError`          | exception     | layout mismatch                                     |
+| `ReconciliationError` | exception     | invariant break                                     |
+| `__version__`         | str           | package version                                     |
+
+`source` accepts `pathlib.Path`, a string path (treated as a path), or a seekable binary stream (e.g. `io.BytesIO`). Auto-detection picks the parser with the highest `detect_confidence` score — ties resolve to registration order. Anything imported from a submodule prefixed with `_` (`bankstract._api`, `bankstract._pdfplumber`, `bankstract._layout`) is internal and may change in any release.
 
 ## Reconciliation invariant
 

@@ -111,13 +111,9 @@ def test_metadata_extracted(fixture: Path) -> None:
     assert md.bank == "fbn"
     assert md.account_holder is not None
     assert md.account_number_masked is not None and md.account_number_masked.startswith("X")
-    # FBN statement header has no explicit period block.
-    assert md.statement_period_start is None
-    assert md.statement_period_end is None
     assert md.opening_balance is not None
     assert md.closing_balance is not None
     assert md.closing_balance == result.transactions[-1].balance
-    # Reverse-computed opening balance must reconcile with the first tx.
     first = result.transactions[0]
     assert first.balance is not None
     assert md.opening_balance == first.balance + first.debit - first.credit
@@ -126,3 +122,11 @@ def test_metadata_extracted(fixture: Path) -> None:
         assert md.account_number_masked == "XXXXXX0000"
         assert md.opening_balance == Decimal("531135.04")
         assert md.closing_balance == Decimal("438664.68")
+        # FBN redactor strips the "Please find below... for the period:" line.
+        assert md.statement_period_start is None
+        assert md.statement_period_end is None
+    else:
+        # _local raw statement preserves the period line.
+        assert md.statement_period_start is not None
+        assert md.statement_period_end is not None
+        assert md.statement_period_start <= md.statement_period_end

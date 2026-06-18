@@ -145,6 +145,14 @@ def _extract_totals(
 
 _HOLDER_RE = re.compile(r"Account Name\s*:\s*(.+?)\s*$", re.MULTILINE)
 _ACCT_RE = re.compile(r"Account No\s*:\s*(\d+)", re.MULTILINE)
+_PERIOD_RE = re.compile(r"period:\s+(\d{2}-[A-Z][a-z]{2}-\d{4})\s+To\s+(\d{2}-[A-Z][a-z]{2}-\d{4})")
+
+
+def _parse_period_date(token: str) -> datetime | None:
+    try:
+        return datetime.strptime(token, "%d-%b-%Y")
+    except ValueError:
+        return None
 
 
 def _mask_account(raw: str) -> str | None:
@@ -159,6 +167,7 @@ def _mask_account(raw: str) -> str | None:
 def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMetadata:
     holder = _HOLDER_RE.search(text)
     acct = _ACCT_RE.search(text)
+    period = _PERIOD_RE.search(text)
     opening: Decimal | None = None
     closing: Decimal | None = None
     if transactions:
@@ -171,8 +180,12 @@ def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMe
         bank="fbn",
         account_holder=holder.group(1).strip() if holder else None,
         account_number_masked=_mask_account(acct.group(1)) if acct else None,
-        statement_period_start=None,
-        statement_period_end=None,
+        # The "Please find below your bank statement for the period: ..."
+        # line is stripped by the FBN redactor (it embeds the account holder's
+        # address); raw _local statements still carry it. Test expects None
+        # for sample.pdf, real datetimes for _local/statement.pdf.
+        statement_period_start=_parse_period_date(period.group(1)) if period else None,
+        statement_period_end=_parse_period_date(period.group(2)) if period else None,
         opening_balance=opening,
         closing_balance=closing,
     )
@@ -184,6 +197,10 @@ class FBNParser(Parser):
     def detect(self, source: PdfSource) -> bool:
         text = first_page_text(source)
         return all(marker in text for marker in HEADER_MARKERS)
+
+    def detect_confidence(self, source: PdfSource) -> float:
+        text = first_page_text(source)
+        return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
 
     def parse(self, source: PdfSource) -> ParseResult:
         words_per_page = extract_words_per_page(source)

@@ -61,6 +61,26 @@ def test_zero_confidence_returns_none(tmp_path: Path) -> None:
 
 
 def test_default_detect_confidence_mirrors_detect() -> None:
-    """Verify the ABC default: 1.0 if detect() else 0.0."""
+    """Verify the ABC default + per-parser fraction override: own fixture
+    scores 1.0, foreign fixtures score 0.0."""
     parser = get("palmpay")
     assert parser.detect_confidence(PALMPAY_SAMPLE) == 1.0
+
+
+def test_per_parser_scores_are_disjoint_across_fixtures() -> None:
+    """Every parser scores its own fixture > all foreign-fixture scores —
+    the actual disambiguation that the score API exists for."""
+    base = Path(__file__).parent
+    fixtures = {
+        "palmpay": base / "palmpay" / "fixtures" / "sample.pdf",
+        "fbn": base / "fbn" / "fixtures" / "sample.pdf",
+        "zenith": base / "zenith" / "fixtures" / "sample.pdf",
+    }
+    for bank, fixture in fixtures.items():
+        own = get(bank).detect_confidence(fixture)
+        foreign = [get(other).detect_confidence(fixture) for other in fixtures if other != bank]
+        assert own > max(foreign, default=0.0), (
+            f"{bank} should score higher than foreign parsers on its own fixture: "
+            f"own={own}, foreign={foreign}"
+        )
+        assert own == 1.0

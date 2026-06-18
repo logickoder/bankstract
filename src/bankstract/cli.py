@@ -35,39 +35,10 @@ def _info(msg: str, *, stdout_used: bool) -> None:
 
 
 def _write_result(result: ParseResult, output: str, fmt: Format) -> int:
-    if output == "-":
-        if fmt == "json":
-            write_json(result, sys.stdout)
-        else:
-            write_csv_stream(result, sys.stdout)
-        return len(result.transactions)
-    out_path = Path(output)
+    target = sys.stdout if output == "-" else Path(output)
     if fmt == "json":
-        return write_json(result, out_path)
-    return write_csv(result.transactions, out_path)
-
-
-def write_csv_stream(result: ParseResult, stream: "object") -> None:
-    """Inline CSV writer that targets a text stream rather than a path so
-    `-o -` can pipe to stdout. Mirrors writers.csv.write_csv field order."""
-    import csv
-
-    from .writers.csv import FIELDNAMES
-
-    writer = csv.DictWriter(stream, fieldnames=FIELDNAMES)  # type: ignore[arg-type]
-    writer.writeheader()
-    for tx in result.transactions:
-        writer.writerow(
-            {
-                "date": tx.date.isoformat(),
-                "narration": tx.narration,
-                "debit": str(tx.debit),
-                "credit": str(tx.credit),
-                "balance": "" if tx.balance is None else str(tx.balance),
-                "reference": tx.reference or "",
-                "currency": tx.currency,
-            }
-        )
+        return write_json(result, target)
+    return write_csv(result.transactions, target)
 
 
 @click.group()
