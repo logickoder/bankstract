@@ -105,8 +105,12 @@ def _bank_command(bank: str) -> click.Command:
 def _check_supported(parser: Parser, source: Source) -> None:
     try:
         src_fmt = sniff_format(source)
-    except ValueError:
-        return  # let parser.parse() surface a richer ParseError
+    except ValueError as exc:
+        # Unknown format hits the user as a clean CLI error rather than a
+        # traceback. Parsers may still recover when given a Path with no
+        # extension if their detect() works on content, so we only fail
+        # loud here, not lower in parser.parse().
+        raise click.ClickException(str(exc)) from exc
     if src_fmt not in parser.supported_formats:
         raise click.ClickException(
             f"{parser.bank} parser does not support {src_fmt!r} input "

@@ -14,10 +14,6 @@ SAMPLE_XLSX = FIXTURE_DIR / "sample.xlsx"
 LOCAL_PDF = FIXTURE_DIR / "_local" / "statement.pdf"
 LOCAL_XLSX = FIXTURE_DIR / "_local" / "statement.xlsx"
 
-# Backwards-compat aliases.
-SAMPLE = SAMPLE_PDF
-LOCAL = LOCAL_PDF
-
 _FIXTURES = [
     pytest.param(SAMPLE_PDF, id="sample-pdf"),
     pytest.param(
@@ -47,10 +43,10 @@ def test_parser_registered() -> None:
     assert parser.bank == "opay"
 
 
-@pytest.mark.skipif(not SAMPLE.exists(), reason="no opay sample fixture")
+@pytest.mark.skipif(not SAMPLE_PDF.exists(), reason="no opay sample fixture")
 def test_parses_redacted_fixture() -> None:
     parser = get("opay")
-    result: ParseResult = parser.parse(SAMPLE)
+    result: ParseResult = parser.parse(SAMPLE_PDF)
     assert result.format_version == "opay-pdf-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:

@@ -9,18 +9,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ._source import Source as _CoreSource
-from ._source import rewind
+from ._source import Source, rewind
 from .parsers import all_parsers, get
 from .schema import ParseError, ParseResult
 
 # Lib API accepts a string path as a friendly shorthand on top of the
-# Path | IO[bytes] union the parser internals use. Normalized to Path
-# before reaching any parser.
-Source = _CoreSource | str
+# strict Path | IO[bytes] union used internally. Distinct name from
+# `Source` so contributors don't confuse the public ergonomic union with
+# the strict internal one.
+SourceLike = Source | str
 
 
-def _normalize(source: Source) -> _CoreSource:
+def _normalize(source: SourceLike) -> Source:
     if isinstance(source, str):
         return Path(source)
     return source
@@ -31,7 +31,7 @@ def list_parsers() -> list[str]:
     return sorted(all_parsers())
 
 
-def detect(source: Source) -> str | None:
+def detect(source: SourceLike) -> str | None:
     """Return the bank name whose parser scores highest on `source`, or
     None if no parser claims it."""
     src = _normalize(source)
@@ -43,20 +43,27 @@ def detect(source: Source) -> str | None:
     return candidates[0][0]
 
 
-def parse(source: Source, *, bank: str | None = None) -> ParseResult:
+def parse(source: SourceLike, *, bank: str | None = None) -> ParseResult:
     """Parse `source` into a ParseResult.
 
     `bank=None` auto-detects via `detect_confidence` (picks max-scoring
     parser). Pass an explicit bank name to skip detection. `source` may be
     a `pathlib.Path`, a string path, or a seekable binary stream
-    (e.g. `io.BytesIO`)."""
+    (e.g. `io.BytesIO`). An unrecognised format (neither PDF nor XLSX)
+    surfaces as a `ParseError`, not a bare `ValueError`."""
     src = _normalize(source)
     if bank is None:
-        name = detect(src)
+        try:
+            name = detect(src)
+        except ValueError as exc:
+            raise ParseError(str(exc)) from exc
         if name is None:
-            raise ParseError("no registered parser detected this PDF")
+            raise ParseError("no registered parser detected this source")
         parser = get(name)
     else:
         parser = get(bank)
     rewind(src)
-    return parser.parse(src)
+    try:
+        return parser.parse(src)
+    except ValueError as exc:
+        raise ParseError(str(exc)) from exc

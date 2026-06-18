@@ -51,10 +51,6 @@ HEADER_MARKERS: tuple[str, ...] = (
     "Credit(₦)",
 )
 
-# Legacy alias retained so external callers that imported `FORMAT_VERSION`
-# don't break before they migrate to the format-specific constants.
-FORMAT_VERSION = FORMAT_VERSION_PDF
-
 ROW_TOL = 4.0
 
 # Column x0 ranges. OPay's print engine shifts everything by up to ~10pt

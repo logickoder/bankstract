@@ -49,11 +49,16 @@ def _peek(source: Source, n: int) -> bytes:
     if isinstance(source, Path):
         with source.open("rb") as f:
             return f.read(n)
-    pos = source.tell()
+    # Always peek from offset 0, not the current position. Callers in the
+    # CLI / lib API run detect_confidence on every parser before reaching
+    # sniff_format, and each parser's reader (pdfplumber / openpyxl)
+    # advances the stream cursor. Reading from the leftover position
+    # would return mid-document bytes that don't match PDF/ZIP magic.
+    source.seek(0)
     try:
         return source.read(n)
     finally:
-        source.seek(pos)
+        source.seek(0)
 
 
 @contextmanager
