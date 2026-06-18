@@ -8,25 +8,22 @@ change in any release.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import IO
 
-from ._pdfplumber import PdfSource
+from ._source import Source as _CoreSource
+from ._source import rewind
 from .parsers import all_parsers, get
 from .schema import ParseError, ParseResult
 
-Source = Path | IO[bytes] | str
+# Lib API accepts a string path as a friendly shorthand on top of the
+# Path | IO[bytes] union the parser internals use. Normalized to Path
+# before reaching any parser.
+Source = _CoreSource | str
 
 
-def _normalize(source: Source) -> PdfSource:
+def _normalize(source: Source) -> _CoreSource:
     if isinstance(source, str):
         return Path(source)
     return source
-
-
-def _rewind(source: PdfSource) -> None:
-    seek = getattr(source, "seek", None)
-    if seek is not None:
-        seek(0)
 
 
 def list_parsers() -> list[str]:
@@ -39,7 +36,7 @@ def detect(source: Source) -> str | None:
     None if no parser claims it."""
     src = _normalize(source)
     candidates = [(name, p.detect_confidence(src)) for name, p in all_parsers().items()]
-    _rewind(src)
+    rewind(src)
     candidates.sort(key=lambda t: t[1], reverse=True)
     if not candidates or candidates[0][1] <= 0:
         return None
@@ -61,5 +58,5 @@ def parse(source: Source, *, bank: str | None = None) -> ParseResult:
         parser = get(name)
     else:
         parser = get(bank)
-    _rewind(src)
+    rewind(src)
     return parser.parse(src)

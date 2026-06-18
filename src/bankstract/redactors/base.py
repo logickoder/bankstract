@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .._pymupdf import PDF_REDACT_IMAGE_NONE, open_doc
+from .._xlsx import Format
 
 
 @dataclass
@@ -15,10 +16,14 @@ class RedactReport:
 
 
 class Redactor(ABC):
-    """Template-method base: subclasses implement per-page header and body
-    passes; the open/apply/save/insert-text plumbing lives here once."""
+    """Template-method base for PDF redactors: subclasses implement per-page
+    header and body passes; the open/apply/save/insert-text plumbing lives
+    here once. Redactors that support additional formats (e.g. XLSX) should
+    add `supported_formats` and override `redact()` to dispatch by file
+    extension before falling through to the PDF template path."""
 
     bank: str
+    supported_formats: tuple[Format, ...] = ("pdf",)
 
     @abstractmethod
     def redact_header(

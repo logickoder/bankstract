@@ -21,10 +21,11 @@ from .._layout import (
     classify,
     group_by_baseline,
 )
-from .._pdfplumber import PdfSource
+from .._source import Source
 from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._common import extract_words_per_page, first_page_text
+from ._money import mask_account_number, parse_amount
 from .base import Parser
 
 # Structural markers, not brand strings — the brand name doesn't always
@@ -43,10 +44,6 @@ FORMAT_VERSION = "palmpay-2026-01"
 ROW_TOL = 4.0
 
 
-def _parse_amount(token: str) -> Decimal:
-    return Decimal(token.replace(",", "").lstrip("₦"))
-
-
 def _extract_totals(
     words_per_page: list[list[Word]],
 ) -> tuple[Decimal | None, Decimal | None]:
@@ -62,9 +59,9 @@ def _extract_totals(
         if amt is None:
             continue
         if "Total Money In" in joined:
-            total_in = _parse_amount(amt)
+            total_in = parse_amount(amt)
         elif "Total Money Out" in joined:
-            total_out = _parse_amount(amt)
+            total_out = parse_amount(amt)
     return (total_in, total_out)
 
 
@@ -125,7 +122,7 @@ def _build_transaction(
         parsed_dt = datetime.strptime(datetime_str, "%m/%d/%Y %I:%M:%S %p")
     except ValueError:
         parsed_dt = datetime.strptime(datetime_str.split()[0], "%m/%d/%Y")
-    amount = _parse_amount(amount_token)
+    amount = parse_amount(amount_token)
     debit = -amount if amount < 0 else Decimal("0")
     credit = amount if amount > 0 else Decimal("0")
     narration = " ".join(narration_tokens + continuation_tokens).strip()
@@ -144,15 +141,6 @@ _ACCT_RE = re.compile(r"Account Number\s+([\d\s]+?)(?:\s*$|\s{2,})", re.MULTILIN
 _PERIOD_RE = re.compile(r"Statement Period\s+(\d{2}/\d{2}/\d{4})\s*[-–]\s*(\d{2}/\d{2}/\d{4})")
 
 
-def _mask_account(raw: str) -> str | None:
-    digits = "".join(c for c in raw if c.isdigit())
-    if not digits:
-        return None
-    if len(digits) <= 4:
-        return "X" * len(digits)
-    return "X" * (len(digits) - 4) + digits[-4:]
-
-
 def _parse_period_date(token: str) -> datetime | None:
     try:
         return datetime.strptime(token, "%m/%d/%Y")
@@ -167,7 +155,7 @@ def _extract_metadata(text: str) -> StatementMetadata:
     return StatementMetadata(
         bank="palmpay",
         account_holder=name_match.group(1).strip() if name_match else None,
-        account_number_masked=_mask_account(acct_match.group(1)) if acct_match else None,
+        account_number_masked=mask_account_number(acct_match.group(1)) if acct_match else None,
         statement_period_start=_parse_period_date(period_match.group(1)) if period_match else None,
         statement_period_end=_parse_period_date(period_match.group(2)) if period_match else None,
         opening_balance=None,
@@ -178,15 +166,15 @@ def _extract_metadata(text: str) -> StatementMetadata:
 class PalmPayParser(Parser):
     bank = "palmpay"
 
-    def detect(self, source: PdfSource) -> bool:
+    def detect(self, source: Source) -> bool:
         text = first_page_text(source)
         return all(marker in text for marker in HEADER_MARKERS)
 
-    def detect_confidence(self, source: PdfSource) -> float:
+    def detect_confidence(self, source: Source) -> float:
         text = first_page_text(source)
         return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
 
-    def parse(self, source: PdfSource) -> ParseResult:
+    def parse(self, source: Source) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:
             raise ParseError("empty PDF", format_version=FORMAT_VERSION)

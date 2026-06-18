@@ -6,7 +6,8 @@ from typing import Literal
 import click
 
 from . import __version__
-from ._pdfplumber import PdfSource
+from ._source import Source
+from ._xlsx import sniff_format
 from .parsers import all_parsers, get
 from .parsers.base import Parser
 from .reconcile import reconcile, verify_totals
@@ -19,7 +20,7 @@ from .writers.json import write_json
 Format = Literal["csv", "json"]
 
 
-def _read_source(pdf_arg: str) -> PdfSource:
+def _read_source(pdf_arg: str) -> Source:
     """`-` reads the entire stdin into BytesIO (pdfplumber needs seek);
     anything else is treated as a filesystem path."""
     if pdf_arg == "-":
@@ -49,9 +50,11 @@ def main() -> None:
 
 @main.command("list")
 def list_parsers_cmd() -> None:
-    """Show registered bank parsers."""
+    """Show registered bank parsers + the input formats each supports."""
     for name in sorted(all_parsers()):
-        click.echo(name)
+        parser = get(name)
+        fmts = ", ".join(parser.supported_formats)
+        click.echo(f"{name} ({fmts})")
 
 
 @main.command("auto")
@@ -99,8 +102,21 @@ def _bank_command(bank: str) -> click.Command:
     return cmd
 
 
-def _run(parser: Parser, source: PdfSource, output: str, fmt: Format, no_reconcile: bool) -> None:
+def _check_supported(parser: Parser, source: Source) -> None:
+    try:
+        src_fmt = sniff_format(source)
+    except ValueError:
+        return  # let parser.parse() surface a richer ParseError
+    if src_fmt not in parser.supported_formats:
+        raise click.ClickException(
+            f"{parser.bank} parser does not support {src_fmt!r} input "
+            f"(supported: {', '.join(parser.supported_formats)})"
+        )
+
+
+def _run(parser: Parser, source: Source, output: str, fmt: Format, no_reconcile: bool) -> None:
     stdout_used = output == "-"
+    _check_supported(parser, source)
     try:
         result: ParseResult = parser.parse(source)
     except ParseError as exc:

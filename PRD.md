@@ -42,7 +42,8 @@ bankstract closes that gap with one clean tool, one plugin contract, and communi
 | v0.6    | Python lib API, JSON writer, StatementMetadata, stdin/stdout pipes.              |
 | v0.7    | Per-parser `detect_confidence` disambiguation, FBN period extraction.            |
 | v0.8    | OPay parser (wallet section) + `ParseResult.row_wise_reconcilable` opt-out.       |
-| v0.9+   | GTB, Kuda, Stanbic, Wise, Bamboo, Risevest — community PRs.                       |
+| v0.9    | XLSX support architecture: `_xlsx.py` boundary, `supported_formats` per parser/redactor, OPay PDF + XLSX both first-class. |
+| v0.10+  | GTB (PDF), Kuda / Stanbic / Sparkle / ALAT (XLSX-first), Wise, Bamboo, Risevest.   |
 
 **Out of scope:** category inference, ML-based parsing, GUI, pushing data into third-party trackers (those belong in downstream tools).
 
@@ -62,22 +63,23 @@ Every bank is a parser module implementing the `Parser` ABC.
 
 ```python
 class Parser(ABC):
-    bank: str  # module-level identifier (e.g. "palmpay", "fbn")
+    bank: str                                              # module-level id ("palmpay", "fbn", …)
+    supported_formats: tuple[Format, ...] = ("pdf",)       # extend w/ "xlsx" per bank
 
     @abstractmethod
-    def detect(self, source: PdfSource) -> bool:
-        """True if this parser handles the given PDF (structural marker match)."""
+    def detect(self, source: Source) -> bool:
+        """True if this parser handles the given source (structural marker match)."""
 
     @abstractmethod
-    def parse(self, source: PdfSource) -> ParseResult:
+    def parse(self, source: Source) -> ParseResult:
         """Extract transactions + metadata + header totals. Raise ParseError on format mismatch."""
 
-    def detect_confidence(self, source: PdfSource) -> float:
-        """Override to disambiguate when multiple parsers detect the same PDF.
+    def detect_confidence(self, source: Source) -> float:
+        """Override to disambiguate when multiple parsers detect the same source.
         Default: 1.0 on positive detection, 0.0 otherwise. Callers pick max."""
 ```
 
-`PdfSource = Path | IO[bytes]` — every entry point accepts either a filesystem path or a seekable binary stream (e.g. `io.BytesIO` from stdin).
+`Source = Path | IO[bytes]` — every entry point accepts either a filesystem path or a seekable binary stream (e.g. `io.BytesIO` from stdin). `Format = Literal["pdf", "xlsx"]`. Multi-format parsers dispatch on `sniff_format(source)` internally and emit per-format `format_version` constants so drift detection works per format independently.
 
 Parsers live in `src/bankstract/parsers/<bank>.py` and self-register via import side-effect in `parsers/__init__.py`. A parallel `Redactor` plugin tree under `src/bankstract/redactors/<bank>.py` produces committable fixtures from raw statements.
 
@@ -142,30 +144,35 @@ bankstract/
 ├── LICENSE                    MIT
 ├── src/
 │   └── bankstract/            standard src-layout package
-│       ├── cli.py
-│       ├── schema.py          Transaction + ParseResult + errors
+│       ├── cli.py             click + --format csv|json + `-` stdin/stdout
+│       ├── schema.py          Transaction + StatementMetadata + ParseResult + errors
 │       ├── reconcile.py       reconcile() + verify_totals()
-│       ├── _layout.py         Word dataclass + classify + Y-grouping (shared)
-│       ├── _pymupdf.py        typed facade over pymupdf
-│       ├── _pdfplumber.py     typed facade over pdfplumber + PdfSource alias
 │       ├── _api.py            lib API: parse() / detect() / list_parsers()
-│       ├── writers/csv.py
-│       ├── writers/json.py
+│       ├── _source.py         Source = Path | IO[bytes] + rewind()
+│       ├── _layout.py         Word dataclass + classify + Y-grouping (shared)
+│       ├── _pdfplumber.py     typed facade over pdfplumber
+│       ├── _pymupdf.py        typed facade over pymupdf
+│       ├── _xlsx.py           typed facade over openpyxl + sniff_format()
+│       ├── writers/csv.py     write_csv(transactions, target: Path | TextIO)
+│       ├── writers/json.py    write_json(result, target) — full ParseResult shape
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
-│       │   ├── base.py        Parser ABC
+│       │   ├── base.py        Parser ABC + supported_formats
 │       │   ├── _common.py     pdfplumber boundary helpers (text/words)
 │       │   ├── _columnar.py   shared column-table walker (fbn + zenith)
-│       │   ├── palmpay.py
-│       │   ├── fbn.py
-│       │   └── zenith.py
+│       │   ├── _money.py      parse_amount / parse_amount_optional / mask_account_number
+│       │   ├── palmpay.py     PDF
+│       │   ├── fbn.py         PDF
+│       │   ├── zenith.py      PDF
+│       │   └── opay.py        PDF + XLSX
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
-│           ├── base.py        Redactor ABC + RedactReport (template-method)
+│           ├── base.py        Redactor ABC + RedactReport + supported_formats
 │           ├── _shared.py     redact + row-walk + regex-sweep primitives
 │           ├── palmpay.py
 │           ├── fbn.py
-│           └── zenith.py
+│           ├── zenith.py
+│           └── opay.py        PDF + XLSX dispatch
 ├── tests/
 │   ├── test_reconcile.py      bank-agnostic
 │   └── <bank>/                one folder per bank

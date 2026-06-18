@@ -28,7 +28,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from .._layout import Word, classify
-from .._pdfplumber import PdfSource
+from .._source import Source
 from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._columnar import (
@@ -37,6 +37,7 @@ from ._columnar import (
     walk_rows,
 )
 from ._common import extract_words_per_page, first_page_text
+from ._money import mask_account_number, parse_amount
 from .base import Parser
 
 HEADER_MARKERS: tuple[str, ...] = (
@@ -63,10 +64,6 @@ COLUMNS: ColumnSpec = {
     "value_date": COL_VALUE_DATE,
     "balance": COL_BALANCE,
 }
-
-
-def _parse_amount(token: str) -> Decimal:
-    return Decimal(token.replace(",", ""))
 
 
 _is_tx_row = has_date_and_balance("date", "balance")
@@ -98,7 +95,7 @@ def _is_chrome_row(row: list[Word]) -> bool:
 def _amount_in(cols: dict[str, list[Word]], key: str) -> Decimal:
     for w in cols.get(key, []):
         if classify(w.text) == "amount":
-            amt = _parse_amount(w.text)
+            amt = parse_amount(w.text)
             if amt != 0:
                 return amt
             break
@@ -117,22 +114,13 @@ def _build_transaction(
         narration=" ".join(desc_tokens + continuation_tokens).strip(),
         debit=_amount_in(cols, "debit"),
         credit=_amount_in(cols, "credit"),
-        balance=_parse_amount(balance_word.text),
+        balance=parse_amount(balance_word.text),
     )
 
 
 _HOLDER_RE = re.compile(r"ACCOUNT NAME\s*:\s*(.+?)\s*(?:Account Statement|$)", re.MULTILINE)
 _ACCT_RE = re.compile(r"ACCOUNT No\.?\s*:\s*(\d+)", re.MULTILINE)
 _PERIOD_RE = re.compile(r"Period\s*:\s*(\d{2}/\d{2}/\d{4})\s+TO\s+(\d{2}/\d{2}/\d{4})")
-
-
-def _mask_account(raw: str) -> str | None:
-    digits = "".join(c for c in raw if c.isdigit())
-    if not digits:
-        return None
-    if len(digits) <= 4:
-        return "X" * len(digits)
-    return "X" * (len(digits) - 4) + digits[-4:]
 
 
 def _parse_period_date(token: str) -> datetime | None:
@@ -156,7 +144,7 @@ def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMe
     return StatementMetadata(
         bank="zenith",
         account_holder=holder.group(1).strip() if holder else None,
-        account_number_masked=_mask_account(acct.group(1)) if acct else None,
+        account_number_masked=mask_account_number(acct.group(1)) if acct else None,
         statement_period_start=_parse_period_date(period.group(1)) if period else None,
         statement_period_end=_parse_period_date(period.group(2)) if period else None,
         opening_balance=opening,
@@ -167,15 +155,15 @@ def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMe
 class ZenithParser(Parser):
     bank = "zenith"
 
-    def detect(self, source: PdfSource) -> bool:
+    def detect(self, source: Source) -> bool:
         text = first_page_text(source)
         return any(marker in text for marker in HEADER_MARKERS)
 
-    def detect_confidence(self, source: PdfSource) -> float:
+    def detect_confidence(self, source: Source) -> float:
         text = first_page_text(source)
         return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
 
-    def parse(self, source: PdfSource) -> ParseResult:
+    def parse(self, source: Source) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:
             raise ParseError("empty PDF", format_version=FORMAT_VERSION)

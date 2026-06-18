@@ -32,11 +32,17 @@ from datetime import datetime
 from decimal import Decimal
 
 from .._layout import Word, classify, group_by_baseline
-from .._pdfplumber import PdfSource
+from .._source import Source
+from .._xlsx import open_workbook, sniff_format
 from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._common import extract_words_per_page, first_page_text
+from ._money import mask_account_number, parse_amount, parse_amount_optional
 from .base import Parser
+
+FORMAT_VERSION_PDF = "opay-pdf-2026-01"
+FORMAT_VERSION_XLSX = "opay-xlsx-2026-01"
+WALLET_SHEET = "Wallet Account Transactions"
 
 HEADER_MARKERS: tuple[str, ...] = (
     "Wallet Account",
@@ -45,7 +51,9 @@ HEADER_MARKERS: tuple[str, ...] = (
     "Credit(₦)",
 )
 
-FORMAT_VERSION = "opay-2026-01"
+# Legacy alias retained so external callers that imported `FORMAT_VERSION`
+# don't break before they migrate to the format-specific constants.
+FORMAT_VERSION = FORMAT_VERSION_PDF
 
 ROW_TOL = 4.0
 
@@ -69,10 +77,6 @@ _MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 
 _DAY_TOK = re.compile(r"\d{2}")
 _YEAR_TOK = re.compile(r"\d{4}")
-
-
-def _parse_amount(token: str) -> Decimal:
-    return Decimal(token.replace(",", "").lstrip("₦"))
 
 
 def _col_words(row: list[Word], col: tuple[float, float]) -> list[Word]:
@@ -106,7 +110,7 @@ def _parse_tx_datetime(date_words: list[Word]) -> datetime:
 def _amount_from_col(row: list[Word], col: tuple[float, float]) -> Decimal:
     for w in _col_words(row, col):
         if classify(w.text) == "amount":
-            return _parse_amount(w.text)
+            return parse_amount(w.text)
     return Decimal("0")
 
 
@@ -193,7 +197,7 @@ def _process_page(
                 narration=narration,
                 debit=_amount_from_col(row, COL_DEBIT),
                 credit=_amount_from_col(row, COL_CREDIT),
-                balance=_parse_amount(balance_word.text),
+                balance=parse_amount(balance_word.text),
                 reference=_longest_ref(ref_words),
             )
         )
@@ -226,24 +230,11 @@ _CREDIT_BLOCK_RE = re.compile(
 )
 
 
-def _mask_account(raw: str) -> str | None:
-    digits = "".join(c for c in raw if c.isdigit())
-    if not digits:
-        return None
-    if len(digits) <= 4:
-        return "X" * len(digits)
-    return "X" * (len(digits) - 4) + digits[-4:]
-
-
 def _parse_period_date(token: str) -> datetime | None:
     try:
         return datetime.strptime(token, "%d %b %Y")
     except ValueError:
         return None
-
-
-def _dec(s: str) -> Decimal:
-    return Decimal(s.replace(",", ""))
 
 
 def _extract_metadata(text: str) -> StatementMetadata:
@@ -255,11 +246,11 @@ def _extract_metadata(text: str) -> StatementMetadata:
     return StatementMetadata(
         bank="opay",
         account_holder=holder.group(1).strip() if holder else None,
-        account_number_masked=_mask_account(acct.group(1)) if acct else None,
+        account_number_masked=mask_account_number(acct.group(1)) if acct else None,
         statement_period_start=_parse_period_date(period.group(1)) if period else None,
         statement_period_end=_parse_period_date(period.group(2)) if period else None,
-        opening_balance=_dec(debit_block.group(1)) if debit_block else None,
-        closing_balance=_dec(credit_block.group(1)) if credit_block else None,
+        opening_balance=parse_amount_optional(debit_block.group(1)) if debit_block else None,
+        closing_balance=parse_amount_optional(credit_block.group(1)) if credit_block else None,
     )
 
 
@@ -267,57 +258,185 @@ def _extract_totals(text: str) -> tuple[Decimal | None, Decimal | None]:
     debit_block = _DEBIT_BLOCK_RE.search(text)
     credit_block = _CREDIT_BLOCK_RE.search(text)
     return (
-        _dec(credit_block.group(2)) if credit_block else None,
-        _dec(debit_block.group(2)) if debit_block else None,
+        parse_amount_optional(credit_block.group(2)) if credit_block else None,
+        parse_amount_optional(debit_block.group(2)) if debit_block else None,
+    )
+
+
+def _xlsx_period(cell: object) -> tuple[datetime | None, datetime | None]:
+    if cell is None:
+        return (None, None)
+    parts = str(cell).split("-")
+    if len(parts) != 2:
+        return (None, None)
+    try:
+        return (
+            datetime.strptime(parts[0].strip(), "%d %b %Y"),
+            datetime.strptime(parts[1].strip(), "%d %b %Y"),
+        )
+    except ValueError:
+        return (None, None)
+
+
+def _parse_xlsx(source: Source) -> ParseResult:
+    """OPay XLSX layout (sheet `Wallet Account Transactions`):
+
+    Row 0: title | None | None | None | 'Date Printed' | <when>
+    Row 1: 'Account Name' | <holder> | 'Account Number' | <num> | 'Address' | <addr>
+    Row 2: 'Account Type' | 'Wallet Account' | 'Period' | 'DD Mon YYYY-DD Mon YYYY'
+    Row 3: 'Opening Balance' | ₦opening | 'Total Debit' | ₦debit | 'Debit Count' | <int>
+    Row 4: 'Closing Balance' | ₦closing | 'Total Credit' | ₦credit | 'Credit Count' | <int>
+    Row 5: blank
+    Row 6: column headers
+    Row 7+: tx rows until the sheet ends
+    """
+    with open_workbook(source) as wb:
+        if WALLET_SHEET not in wb.sheetnames:
+            raise ParseError(
+                f"sheet {WALLET_SHEET!r} missing — layout drift?",
+                format_version=FORMAT_VERSION_XLSX,
+            )
+        ws = wb[WALLET_SHEET]
+        rows = list(ws.iter_rows(values_only=True))
+
+    if len(rows) < 8:
+        raise ParseError(
+            "wallet sheet too short — layout drift?",
+            format_version=FORMAT_VERSION_XLSX,
+        )
+
+    holder = str(rows[1][1]) if rows[1][1] is not None else None
+    acct_raw = str(rows[1][3]) if rows[1][3] is not None else ""
+    period_start, period_end = _xlsx_period(rows[2][3])
+    opening = parse_amount_optional(rows[3][1])
+    total_debit = parse_amount_optional(rows[3][3])
+    closing = parse_amount_optional(rows[4][1])
+    total_credit = parse_amount_optional(rows[4][3])
+
+    transactions: list[Transaction] = []
+    for row in rows[7:]:
+        if row is None or row[0] is None or str(row[0]).strip() == "":
+            continue
+        date_str = str(row[0])
+        try:
+            tx_dt = datetime.strptime(date_str, "%d %b %Y %H:%M:%S")
+        except ValueError:
+            # End-of-sheet sentinel or unrecognised row — stop.
+            break
+        transactions.append(
+            Transaction(
+                date=tx_dt,
+                narration=str(row[2]).strip() if row[2] is not None else "",
+                debit=parse_amount(row[3]),
+                credit=parse_amount(row[4]),
+                balance=parse_amount(row[5]),
+                reference=str(row[7]).strip() if row[7] is not None else None,
+            )
+        )
+
+    if not transactions:
+        raise ParseError(
+            "no transactions parsed — wallet sheet empty?",
+            format_version=FORMAT_VERSION_XLSX,
+        )
+
+    return ParseResult(
+        transactions=transactions,
+        total_credit=total_credit,
+        total_debit=total_debit,
+        format_version=FORMAT_VERSION_XLSX,
+        metadata=StatementMetadata(
+            bank="opay",
+            account_holder=holder,
+            account_number_masked=mask_account_number(acct_raw),
+            statement_period_start=period_start,
+            statement_period_end=period_end,
+            opening_balance=opening,
+            closing_balance=closing,
+        ),
+        row_wise_reconcilable=False,
+    )
+
+
+def _parse_pdf(source: Source) -> ParseResult:
+    words_per_page = extract_words_per_page(source)
+    if not words_per_page:
+        raise ParseError("empty PDF", format_version=FORMAT_VERSION_PDF)
+
+    transactions: list[Transaction] = []
+    for page_idx, page_words in enumerate(words_per_page):
+        rows = group_by_baseline(page_words, ROW_TOL)
+        page_txs, hit_section_end = _process_page(rows, skip_header_chrome=(page_idx == 0))
+        transactions.extend(page_txs)
+        if hit_section_end:
+            break
+
+    if not transactions:
+        raise ParseError(
+            "no transactions parsed — layout mismatch or empty statement",
+            format_version=FORMAT_VERSION_PDF,
+        )
+
+    text = first_page_text(source)
+    total_credit, total_debit = _extract_totals(text)
+    return ParseResult(
+        transactions=transactions,
+        total_credit=total_credit,
+        total_debit=total_debit,
+        format_version=FORMAT_VERSION_PDF,
+        metadata=_extract_metadata(text),
+        # Wallet balance column doesn't reflect OWealth implicit auto-save/
+        # withdrawal side-effects: a debit-to-external can land with bal=0
+        # prev → bal=0 curr because the matching OWealth withdrawal happens
+        # atomically but is logged on a subsequent row. Row-wise reconcile
+        # would false-fail on every such pair; we rely on verify_totals
+        # against the header-printed Total Debit/Credit.
+        row_wise_reconcilable=False,
     )
 
 
 class OPayParser(Parser):
     bank = "opay"
+    supported_formats = ("pdf", "xlsx")
 
-    def detect(self, source: PdfSource) -> bool:
-        text = first_page_text(source)
-        return all(marker in text for marker in HEADER_MARKERS)
+    def detect(self, source: Source) -> bool:
+        try:
+            fmt = sniff_format(source)
+        except ValueError:
+            return False
+        if fmt == "pdf":
+            text = first_page_text(source)
+            return all(marker in text for marker in HEADER_MARKERS)
+        if fmt == "xlsx":
+            try:
+                with open_workbook(source) as wb:
+                    return WALLET_SHEET in wb.sheetnames
+            except ValueError:
+                return False
+        return False
 
-    def detect_confidence(self, source: PdfSource) -> float:
-        text = first_page_text(source)
-        return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
+    def detect_confidence(self, source: Source) -> float:
+        try:
+            fmt = sniff_format(source)
+        except ValueError:
+            return 0.0
+        if fmt == "pdf":
+            text = first_page_text(source)
+            return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
+        if fmt == "xlsx":
+            return 1.0 if self.detect(source) else 0.0
+        return 0.0
 
-    def parse(self, source: PdfSource) -> ParseResult:
-        words_per_page = extract_words_per_page(source)
-        if not words_per_page:
-            raise ParseError("empty PDF", format_version=FORMAT_VERSION)
-
-        transactions: list[Transaction] = []
-        for page_idx, page_words in enumerate(words_per_page):
-            rows = group_by_baseline(page_words, ROW_TOL)
-            page_txs, hit_section_end = _process_page(rows, skip_header_chrome=(page_idx == 0))
-            transactions.extend(page_txs)
-            if hit_section_end:
-                break
-
-        if not transactions:
-            raise ParseError(
-                "no transactions parsed — layout mismatch or empty statement",
-                format_version=FORMAT_VERSION,
-            )
-
-        text = first_page_text(source)
-        total_credit, total_debit = _extract_totals(text)
-        return ParseResult(
-            transactions=transactions,
-            total_credit=total_credit,
-            total_debit=total_debit,
-            format_version=FORMAT_VERSION,
-            metadata=_extract_metadata(text),
-            # Wallet balance column doesn't reflect OWealth implicit
-            # auto-save/withdrawal side-effects: a debit-to-external can land
-            # with bal=0 prev → bal=0 curr because the matching OWealth
-            # withdrawal happens atomically but is logged on a subsequent row.
-            # Row-wise reconcile would false-fail on every such pair; we rely
-            # on verify_totals against the header-printed Total Debit/Credit.
-            row_wise_reconcilable=False,
-        )
+    def parse(self, source: Source) -> ParseResult:
+        try:
+            fmt = sniff_format(source)
+        except ValueError as exc:
+            raise ParseError(str(exc), format_version="opay-unknown") from exc
+        if fmt == "xlsx":
+            return _parse_xlsx(source)
+        if fmt == "pdf":
+            return _parse_pdf(source)
+        raise ParseError(f"unsupported source format: {fmt}", format_version="opay-unknown")
 
 
 register(OPayParser())

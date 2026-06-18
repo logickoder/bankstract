@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import bankstract
-from bankstract._pdfplumber import PdfSource
+from bankstract._source import Source
 from bankstract.parsers import _REGISTRY, get, register
 from bankstract.parsers.base import Parser
 from bankstract.schema import ParseResult
@@ -25,15 +25,15 @@ class _DummyAlwaysParser(Parser):
     def __init__(self, score: float) -> None:
         self._score = score
 
-    def detect(self, source: PdfSource) -> bool:
+    def detect(self, source: Source) -> bool:
         del source
         return True
 
-    def detect_confidence(self, source: PdfSource) -> float:
+    def detect_confidence(self, source: Source) -> float:
         del source
         return self._score
 
-    def parse(self, source: PdfSource) -> ParseResult:
+    def parse(self, source: Source) -> ParseResult:
         del source
         return ParseResult(transactions=[], format_version="dummy")
 

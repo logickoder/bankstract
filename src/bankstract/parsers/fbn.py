@@ -22,7 +22,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from .._layout import Word, classify, group_by_baseline
-from .._pdfplumber import PdfSource
+from .._source import Source
 from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._columnar import (
@@ -31,6 +31,7 @@ from ._columnar import (
     walk_rows,
 )
 from ._common import extract_words_per_page, first_page_text
+from ._money import mask_account_number, parse_amount
 from .base import Parser
 
 # Structural column header — unique to FBN's statement layout. Substring
@@ -81,10 +82,6 @@ CHROME_MARKERS: frozenset[str] = frozenset(
 )
 
 
-def _parse_amount(token: str) -> Decimal:
-    return Decimal(token.replace(",", ""))
-
-
 _is_tx_row = has_date_and_balance("date", "balance")
 
 
@@ -95,7 +92,7 @@ def _is_chrome_row(row: list[Word]) -> bool:
 def _amount_in(cols: dict[str, list[Word]], key: str) -> Decimal:
     for w in cols.get(key, []):
         if classify(w.text) == "amount":
-            amt = _parse_amount(w.text)
+            amt = parse_amount(w.text)
             if amt != 0:
                 return amt
             break
@@ -116,7 +113,7 @@ def _build_transaction(
         narration=" ".join(detail_tokens + continuation_tokens).strip(),
         debit=_amount_in(cols, "withdrawal"),
         credit=_amount_in(cols, "deposit"),
-        balance=_parse_amount(balance_word.text),
+        balance=parse_amount(balance_word.text),
         reference=next((w.text for w in cols.get("ref", [])), None),
     )
 
@@ -137,9 +134,9 @@ def _extract_totals(
         if amt is None:
             continue
         if "Total Credit" in line:
-            total_credit = _parse_amount(amt)
+            total_credit = parse_amount(amt)
         elif "Total Debit" in line:
-            total_debit = _parse_amount(amt)
+            total_debit = parse_amount(amt)
     return (total_credit, total_debit)
 
 
@@ -153,15 +150,6 @@ def _parse_period_date(token: str) -> datetime | None:
         return datetime.strptime(token, "%d-%b-%Y")
     except ValueError:
         return None
-
-
-def _mask_account(raw: str) -> str | None:
-    digits = "".join(c for c in raw if c.isdigit())
-    if not digits:
-        return None
-    if len(digits) <= 4:
-        return "X" * len(digits)
-    return "X" * (len(digits) - 4) + digits[-4:]
 
 
 def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMetadata:
@@ -179,7 +167,7 @@ def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMe
     return StatementMetadata(
         bank="fbn",
         account_holder=holder.group(1).strip() if holder else None,
-        account_number_masked=_mask_account(acct.group(1)) if acct else None,
+        account_number_masked=mask_account_number(acct.group(1)) if acct else None,
         # The "Please find below your bank statement for the period: ..."
         # line is stripped by the FBN redactor (it embeds the account holder's
         # address); raw _local statements still carry it. Test expects None
@@ -194,15 +182,15 @@ def _extract_metadata(text: str, transactions: list[Transaction]) -> StatementMe
 class FBNParser(Parser):
     bank = "fbn"
 
-    def detect(self, source: PdfSource) -> bool:
+    def detect(self, source: Source) -> bool:
         text = first_page_text(source)
         return all(marker in text for marker in HEADER_MARKERS)
 
-    def detect_confidence(self, source: PdfSource) -> float:
+    def detect_confidence(self, source: Source) -> float:
         text = first_page_text(source)
         return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
 
-    def parse(self, source: PdfSource) -> ParseResult:
+    def parse(self, source: Source) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:
             raise ParseError("empty PDF", format_version=FORMAT_VERSION)

@@ -14,10 +14,11 @@ uv run pytest
 
 ## Adding a bank parser
 
-1. Copy `src/bankstract/parsers/palmpay.py` to `src/bankstract/parsers/<bank>.py`. Implement `detect()`, `parse() -> ParseResult`, and optionally override `detect_confidence()` when your bank's markers may collide with another's.
-2. Copy `src/bankstract/redactors/palmpay.py` to `src/bankstract/redactors/<bank>.py`.
-3. Drop the raw statement at `tests/<bank>/fixtures/_local/statement.pdf` (gitignored) and run `uv run bankstract redact <bank> tests/<bank>/fixtures/_local/statement.pdf tests/<bank>/fixtures/sample.pdf`. Eyeball the output, commit only the redacted sample.
-4. Add `tests/<bank>/test_parser.py` + `tests/<bank>/test_redactor.py`.
+1. Copy `src/bankstract/parsers/palmpay.py` (PDF-only template) or `opay.py` (PDF + XLSX dispatch template) to `src/bankstract/parsers/<bank>.py`. Implement `detect()`, `parse() -> ParseResult`, and optionally override `detect_confidence()` when your bank's markers may collide with another's. Reuse shared helpers — `parse_amount` / `parse_amount_optional` / `mask_account_number` from `parsers/_money.py`, `walk_rows` from `parsers/_columnar.py`, `first_page_text` / `extract_words_per_page` from `parsers/_common.py`, `open_workbook` / `sniff_format` from `_xlsx.py`.
+2. Declare which input formats your parser handles: `supported_formats: tuple[Format, ...] = ("pdf",)` (default) or `("pdf", "xlsx")`. The CLI gates dispatch on this attribute and `bankstract list` prints it. Mirror on the redactor (`Redactor.supported_formats`) if the redaction path also supports XLSX.
+3. Copy `src/bankstract/redactors/palmpay.py` to `src/bankstract/redactors/<bank>.py`. For XLSX redaction, override `Redactor.redact()` to dispatch on `sniff_format(src)` — openpyxl cell-level rewrites for XLSX, fall through to the inherited template-method PDF pipeline otherwise.
+4. Drop the raw statement at `tests/<bank>/fixtures/_local/statement.{pdf,xlsx}` (gitignored) and run `uv run bankstract redact <bank> tests/<bank>/fixtures/_local/statement.pdf tests/<bank>/fixtures/sample.pdf`. Eyeball the output, commit only the redacted sample.
+5. Add `tests/<bank>/test_parser.py` + `tests/<bank>/test_redactor.py`. Multi-format banks parametrize tests over both `.pdf` and `.xlsx` fixtures.
 
 ### Parser self-registration
 
@@ -27,19 +28,26 @@ That import-side-effect choice trades a small static-analysis discoverability hi
 
 ### Dual-fixture testing rule
 
-Parser and metadata tests parametrize over BOTH `tests/<bank>/fixtures/sample.pdf` (committed, redacted) AND `tests/<bank>/fixtures/_local/statement.pdf` (gitignored, raw) when present. The raw fixture catches metadata-regex regressions that placeholder-only redacted samples silently pass. Skip pattern:
+Parser and metadata tests parametrize over the committed redacted sample(s) AND any raw `_local/statement.*` (gitignored) when present. The raw fixture catches metadata-regex regressions that placeholder-only redacted samples silently pass. Multi-format parsers (PDF + XLSX) parametrize over every supported extension.
 
 ```python
-LOCAL = Path(__file__).parent / "fixtures" / "_local" / "statement.pdf"
+SAMPLE_PDF = FIXTURE_DIR / "sample.pdf"
+SAMPLE_XLSX = FIXTURE_DIR / "sample.xlsx"
+LOCAL_PDF = FIXTURE_DIR / "_local" / "statement.pdf"
+LOCAL_XLSX = FIXTURE_DIR / "_local" / "statement.xlsx"
+
 _FIXTURES = [
-    pytest.param(SAMPLE, id="sample"),
-    pytest.param(
-        LOCAL,
-        id="local",
-        marks=pytest.mark.skipif(not LOCAL.exists(), reason="raw fixture absent"),
-    ),
+    pytest.param(SAMPLE_PDF, id="sample-pdf"),
+    pytest.param(SAMPLE_XLSX, id="sample-xlsx",
+                 marks=pytest.mark.skipif(not SAMPLE_XLSX.exists(), reason="no XLSX")),
+    pytest.param(LOCAL_PDF, id="local-pdf",
+                 marks=pytest.mark.skipif(not LOCAL_PDF.exists(), reason="raw absent")),
+    pytest.param(LOCAL_XLSX, id="local-xlsx",
+                 marks=pytest.mark.skipif(not LOCAL_XLSX.exists(), reason="raw absent")),
 ]
 ```
+
+`tests/conftest.py` also emits CSV + JSON for every fixture into `_local/<stem>.{ext}.{csv,json}` on every pytest run so the owner can eyeball parser output across all banks without re-running the CLI.
 
 ## Fixture privacy
 

@@ -1,23 +1,24 @@
 # bankstract
 
-Convert Nigerian bank PDF statements into structured CSV. Plugin architecture — one parser per bank.
+Convert Nigerian bank PDF + XLSX statements into structured CSV or JSON. Plugin architecture — one parser per bank, formats declared per parser.
 
 ```bash
 pip install bankstract
 
 bankstract palmpay statement.pdf -o out.csv
+bankstract opay statement.xlsx -o out.json -f json
 bankstract auto unknown.pdf -o out.csv
-bankstract list
+bankstract list                                # bank (formats)
 ```
 
 ## Status
 
-| Bank       | Status        |
-| ---------- | ------------- |
-| PalmPay    | v0.8 — alpha  |
-| First Bank | v0.8 — alpha  |
-| Zenith     | v0.8 — alpha  |
-| OPay       | v0.8 — alpha  |
+| Bank       | Formats   | Status        |
+| ---------- | --------- | ------------- |
+| PalmPay    | PDF       | v0.9 — alpha  |
+| First Bank | PDF       | v0.9 — alpha  |
+| Zenith     | PDF       | v0.9 — alpha  |
+| OPay       | PDF, XLSX | v0.9 — alpha  |
 
 ## Install
 
@@ -127,15 +128,13 @@ Both modes exist to catch silently-dropped rows — the failure mode of naive PD
 
 ## Contributing a bank parser
 
-1. Copy `src/bankstract/parsers/palmpay.py` to `src/bankstract/parsers/<bank>.py`.
-2. Implement `detect()` and `parse() -> ParseResult` from `parsers/base.py`. Populate `total_credit` / `total_debit` if the statement only ships header totals.
-3. Add a `Redactor` subclass under `src/bankstract/redactors/<bank>.py` for the fixture pipeline.
-4. Drop the raw statement at `tests/<bank>/fixtures/_local/` (gitignored), then `uv run bankstract redact <bank> <raw> tests/<bank>/fixtures/sample.pdf` to produce the committable fixture.
-5. Add tests under `tests/<bank>/test_parser.py` and `tests/<bank>/test_redactor.py`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full checklist: gate setup, shared helpers (`parsers/_money.py`, `parsers/_columnar.py`, `_xlsx.py`), `supported_formats` declaration, XLSX redactor dispatch, dual-fixture testing rule, fixture privacy, and the Conventional Commits release gate.
 
-CI runs `ruff` + `pyright` (strict) + `pytest`. All three must pass clean. Reconciliation invariant must hold on every fixture.
+Quick form: copy `parsers/palmpay.py` (PDF-only) or `parsers/opay.py` (PDF + XLSX) as the template; reuse shared helpers; declare `supported_formats`; drop the raw statement at `tests/<bank>/fixtures/_local/statement.{pdf,xlsx}` (gitignored); redact into `sample.{pdf,xlsx}`; commit only the redacted sample.
 
-Fixture PDFs must be redacted: account numbers, names, addresses, transaction IDs scrubbed. Never commit unredacted statements.
+CI runs `ruff` + `pyright` (strict) + `pytest`. All three must pass clean. Reconciliation invariant holds on every fixture (or the parser opts out via `ParseResult.row_wise_reconcilable=False` and supplies header totals for `verify_totals`).
+
+Fixtures must be redacted: account numbers, names, addresses, transaction IDs scrubbed. Never commit unredacted statements.
 
 ## License
 

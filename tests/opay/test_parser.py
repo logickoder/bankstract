@@ -9,16 +9,34 @@ from bankstract.reconcile import verify_totals
 from bankstract.schema import ParseResult
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
-SAMPLE = FIXTURE_DIR / "sample.pdf"
-LOCAL = FIXTURE_DIR / "_local" / "statement.pdf"
+SAMPLE_PDF = FIXTURE_DIR / "sample.pdf"
+SAMPLE_XLSX = FIXTURE_DIR / "sample.xlsx"
+LOCAL_PDF = FIXTURE_DIR / "_local" / "statement.pdf"
+LOCAL_XLSX = FIXTURE_DIR / "_local" / "statement.xlsx"
+
+# Backwards-compat aliases.
+SAMPLE = SAMPLE_PDF
+LOCAL = LOCAL_PDF
 
 _FIXTURES = [
-    pytest.param(SAMPLE, id="sample"),
+    pytest.param(SAMPLE_PDF, id="sample-pdf"),
     pytest.param(
-        LOCAL,
-        id="local",
+        SAMPLE_XLSX,
+        id="sample-xlsx",
+        marks=pytest.mark.skipif(not SAMPLE_XLSX.exists(), reason="sample.xlsx not generated"),
+    ),
+    pytest.param(
+        LOCAL_PDF,
+        id="local-pdf",
         marks=pytest.mark.skipif(
-            not LOCAL.exists(), reason="raw fixture absent (CI / fresh clone)"
+            not LOCAL_PDF.exists(), reason="raw PDF fixture absent (CI / fresh clone)"
+        ),
+    ),
+    pytest.param(
+        LOCAL_XLSX,
+        id="local-xlsx",
+        marks=pytest.mark.skipif(
+            not LOCAL_XLSX.exists(), reason="raw XLSX fixture absent (CI / fresh clone)"
         ),
     ),
 ]
@@ -33,7 +51,7 @@ def test_parser_registered() -> None:
 def test_parses_redacted_fixture() -> None:
     parser = get("opay")
     result: ParseResult = parser.parse(SAMPLE)
-    assert result.format_version == "opay-2026-01"
+    assert result.format_version == "opay-pdf-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:
         assert tx.debit > 0 or tx.credit > 0
@@ -65,7 +83,7 @@ def test_metadata_extracted(fixture: Path) -> None:
     assert md.statement_period_start <= md.statement_period_end
     assert md.opening_balance is not None
     assert md.closing_balance is not None
-    if fixture == SAMPLE:
+    if fixture in (SAMPLE_PDF, SAMPLE_XLSX):
         assert md.account_holder == "TEST USER"
         assert md.account_number_masked == "XXXXXX0000"
         assert md.statement_period_start == datetime(2023, 5, 1)
@@ -74,3 +92,5 @@ def test_metadata_extracted(fixture: Path) -> None:
         assert md.closing_balance == Decimal("7581.31")
         # 18 transactions in the short-period wallet sample (16 dr + 2 cr).
         assert len(result.transactions) == 18
+        expected_fmt = "opay-xlsx-2026-01" if fixture.suffix == ".xlsx" else "opay-pdf-2026-01"
+        assert result.format_version == expected_fmt

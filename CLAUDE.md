@@ -45,7 +45,7 @@ blocks = raw.split("\r\n\r\n")
 Direct, technical, honest. No "I've gone ahead and...", no "Let me know if...". Report the change, the file, the test status.
 
 ### 8. PYRIGHT STRICT IS GREEN OR BUST
-All code under `src/` and `tests/` must pass `uv run pyright` with the strict-mode config in `pyproject.toml` (`[tool.pyright] typeCheckingMode = "strict"`). Zero errors, zero warnings. Untyped third-party libraries (pymupdf, pdfplumber) are wrapped at the boundary in `bankstract._layout` and converted to typed `Word` objects — downstream code stays fully typed. If you must touch an untyped library directly, annotate the bridging call with `cast(Any, ...)` or a local `# type: ignore[...]` comment, never a project-wide rule relax.
+All code under `src/` and `tests/` must pass `uv run pyright` with the strict-mode config in `pyproject.toml` (`[tool.pyright] typeCheckingMode = "strict"`). Zero errors, zero warnings. Untyped third-party libraries (pymupdf, pdfplumber, openpyxl) are wrapped at the boundary in `_pymupdf.py` / `_pdfplumber.py` / `_xlsx.py` — downstream code stays fully typed. If you must touch an untyped library directly, annotate the bridging call with `cast(Any, ...)` or a local `# type: ignore[...]` comment, never a project-wide rule relax.
 
 ---
 
@@ -54,34 +54,45 @@ All code under `src/` and `tests/` must pass `uv run pyright` with the strict-mo
 ```
 bankstract/
 ├── pyproject.toml             ruff + pytest config
+├── pyrightconfig.json         strict-mode pyright config
 ├── README.md                  public-facing
 ├── PRD.md                     product spec
+├── CONTRIBUTING.md            new-bank checklist + gate rules
 ├── LICENSE                    MIT
 ├── uv.lock                    locked deps
 ├── src/
 │   └── bankstract/            package (src-layout; hatchling editable mode
 │       ├── __init__.py        rejects prefix rewrites, so use a real subdir)
-│       ├── cli.py             click entrypoint
-│       ├── schema.py          pydantic Transaction + ParseResult + errors
+│       ├── cli.py             click entrypoint w/ --format csv|json + `-` stdin/stdout
+│       ├── schema.py          pydantic Transaction + StatementMetadata + ParseResult + errors
 │       ├── reconcile.py       row-wise + totals-based invariant checks
+│       ├── _api.py            lib API: parse() / detect() / list_parsers()
+│       ├── _source.py         Source = Path | IO[bytes] + rewind() helper
 │       ├── _layout.py         shared Word dataclass + classify + Y-grouping
+│       ├── _pdfplumber.py     typed facade over pdfplumber (open_doc)
+│       ├── _pymupdf.py        typed facade over pymupdf (redactor boundary)
+│       ├── _xlsx.py           typed facade over openpyxl + sniff_format(source)
 │       ├── writers/
-│       │   └── csv.py
+│       │   ├── csv.py         write_csv(transactions, target: Path | TextIO)
+│       │   └── json.py        write_json(result, target) — full ParseResult shape
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
-│       │   ├── base.py        Parser ABC
+│       │   ├── base.py        Parser ABC + supported_formats: tuple[Format, ...]
 │       │   ├── _common.py     first_page_text + extract_words_per_page
 │       │   ├── _columnar.py   column_of / row_columns / walk_rows (shared by fbn + zenith)
-│       │   ├── palmpay.py
-│       │   ├── fbn.py
-│       │   └── zenith.py
+│       │   ├── _money.py      parse_amount / parse_amount_optional / mask_account_number
+│       │   ├── palmpay.py     PDF — totals-based reconcile
+│       │   ├── fbn.py         PDF — row-wise + totals reconcile
+│       │   ├── zenith.py      PDF — row-wise reconcile
+│       │   └── opay.py        PDF + XLSX — dispatch via sniff_format
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
-│           ├── base.py        Redactor ABC + RedactReport (template-method)
+│           ├── base.py        Redactor ABC + RedactReport + supported_formats
 │           ├── _shared.py     redact_word / redact_range / shape_preserve / page_rows / apply_regex_sweeps
 │           ├── palmpay.py     phrase-based
 │           ├── fbn.py         column-aware aggressive blank
-│           └── zenith.py      column-aware aggressive blank (skips above table header)
+│           ├── zenith.py      column-aware aggressive blank (skips above table header)
+│           └── opay.py        PDF column-aware + XLSX cell-level rewrite
 ├── tests/
 │   ├── test_reconcile.py      bank-agnostic invariant tests
 │   └── <bank>/                one folder per bank, mirrors src/ layout
@@ -154,29 +165,34 @@ Every parser implements `Parser` ABC from `parsers/base.py`:
 ```python
 class Parser(ABC):
     bank: str  # registry key — lowercase, no spaces
+    supported_formats: tuple[Format, ...] = ("pdf",)  # add "xlsx" when supported
 
     @abstractmethod
-    def detect(self, pdf_path: Path) -> bool: ...
+    def detect(self, source: Source) -> bool: ...
 
     @abstractmethod
-    def parse(self, pdf_path: Path) -> ParseResult: ...
+    def parse(self, source: Source) -> ParseResult: ...
+
+    def detect_confidence(self, source: Source) -> float:
+        return 1.0 if self.detect(source) else 0.0  # override w/ marker fraction
 ```
 
-`ParseResult` carries the transaction list plus optional `total_credit` / `total_debit` read from the statement header. Parsers whose statements omit a per-row balance column MUST populate the totals so the CLI can fall back to `verify_totals()` instead of silently skipping reconciliation.
+`Source = Path | IO[bytes]`. `ParseResult` carries the transaction list plus optional `total_credit` / `total_debit` read from the statement header + `StatementMetadata` + `format_version` + `row_wise_reconcilable` opt-out. Parsers whose statements omit a per-row balance column MUST populate the totals so the CLI can fall back to `verify_totals()` instead of silently skipping reconciliation. Multi-format parsers (e.g. OPay) dispatch internally on `sniff_format(source)` and emit per-format `format_version` constants (`opay-pdf-2026-01` vs `opay-xlsx-2026-01`) so drift detection works per format independently.
 
 Rules:
-- `detect()` is cheap — read first page only, match header string or logo metadata. No full parse.
+- `detect()` is cheap — read first page (PDF) or sheet names (XLSX), match header string or column signature. No full parse.
 - `parse()` raises `ParseError` (carrying `format_version`) on layout mismatch. No silent return of `[]`.
 - Unparseable mid-document blocks go to a `.log` sidecar via the shared `log_unparseable()` helper. Never silently dropped.
 - Each parser self-registers in `parsers/__init__.py` via import side-effect. No central registry edit needed.
+- Share, don't duplicate: amount/account helpers live in `parsers/_money.py` (`parse_amount`, `parse_amount_optional`, `mask_account_number`); columnar walkers in `_columnar.py`; pdfplumber/openpyxl boundaries in `_common.py` / `_xlsx.py`.
 
 ## TESTING
 
 - Every parser ships with at least one anonymized fixture under `tests/<bank>/fixtures/sample.pdf`
 - Reconciliation invariant tested for every fixture in `test_reconcile.py` (row-wise + totals-based)
 - Format-version detection tested against multiple versions when more than one is available
-- Each parser has a sibling `tests/test_redactor_<bank>.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)
-- No mocking of `pdfplumber` / `camelot` / `pytesseract` — tests run against real fixture PDFs
+- Each parser has a sibling `tests/<bank>/test_redactor.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)
+- No mocking of `pdfplumber` / `camelot` / `pytesseract` / `openpyxl` — tests run against real fixture PDFs/XLSX
 - Every parser/metadata test parametrizes over both `tests/<bank>/fixtures/sample.pdf` (committed, redacted) AND `tests/<bank>/fixtures/_local/statement.pdf` (gitignored, raw) when present. Skip the local case via `pytest.mark.skipif(not _local.exists())` so CI stays green without raw fixtures. The raw fixture catches metadata-regex regressions that placeholder values silently pass
 
 ## OUT OF SCOPE — DO NOT ADD

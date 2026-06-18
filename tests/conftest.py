@@ -31,7 +31,11 @@ def _emit_local_artifacts() -> Iterator[None]:  # pyright: ignore[reportUnusedFu
             continue
         local_dir = fixtures_dir / "_local"
         local_dir.mkdir(exist_ok=True)
-        for fixture in (fixtures_dir / "sample.pdf", local_dir / "statement.pdf"):
+        candidates: list[Path] = []
+        for ext in ("pdf", "xlsx"):
+            candidates.append(fixtures_dir / f"sample.{ext}")
+            candidates.append(local_dir / f"statement.{ext}")
+        for fixture in candidates:
             if not fixture.is_file():
                 continue
             try:
@@ -40,7 +44,7 @@ def _emit_local_artifacts() -> Iterator[None]:  # pyright: ignore[reportUnusedFu
                 # Don't fail the test session on a single bank's parse glitch;
                 # the per-bank test will surface it with proper context.
                 continue
-            stem = fixture.stem
+            stem = f"{fixture.stem}.{fixture.suffix.lstrip('.')}"
             write_csv(result.transactions, local_dir / f"{stem}.csv")
             write_json(result, local_dir / f"{stem}.json")
     yield

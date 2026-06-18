@@ -1,19 +1,26 @@
 from abc import ABC, abstractmethod
 
-from .._pdfplumber import PdfSource
+from .._source import Source
+from .._xlsx import Format
 from ..schema import ParseResult
 
 
 class Parser(ABC):
     bank: str
 
-    @abstractmethod
-    def detect(self, source: PdfSource) -> bool: ...
+    # Formats the parser knows how to handle. Default PDF-only — banks that
+    # also expose XLSX (OPay, Kuda, Stanbic, …) override with both. CLI +
+    # lib API skip parsers whose `supported_formats` doesn't include the
+    # sniffed input format.
+    supported_formats: tuple[Format, ...] = ("pdf",)
 
     @abstractmethod
-    def parse(self, source: PdfSource) -> ParseResult: ...
+    def detect(self, source: Source) -> bool: ...
 
-    def detect_confidence(self, source: PdfSource) -> float:
+    @abstractmethod
+    def parse(self, source: Source) -> ParseResult: ...
+
+    def detect_confidence(self, source: Source) -> float:
         """Override to disambiguate when multiple parsers' detect() may match.
         Default: 1.0 on positive detection, 0.0 otherwise. Callers
         (`bankstract.cli.auto`, `bankstract.detect`) pick the max-scoring

@@ -19,13 +19,17 @@ Strategy:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
+
+from openpyxl import load_workbook  # type: ignore[import-untyped]
 
 from .._layout import classify
 from .._pymupdf import rect as _rect
+from .._xlsx import sniff_format
 from . import register
 from ._shared import RegexSweep, apply_regex_sweeps, page_rows, redact_word, shape_preserve
-from .base import Redactor
+from .base import Redactor, RedactReport
 
 # Column ranges are deliberately WIDER than the parser's COL_* — the parser
 # wants precise column attribution, the redactor wants to catch every word
@@ -47,8 +51,78 @@ SWEEPS: tuple[RegexSweep, ...] = (
 )
 
 
+_XLSX_HEADER_REPLACEMENTS: dict[int, object] = {
+    # Row-1 columns (0-indexed): holder name (1), account number (3), address (5).
+    1: "TEST USER",
+    3: "0000000000",
+    5: "Test Address",
+}
+
+
+def _xlsx_redact_sheet(ws: Any, audit: list[str]) -> int:
+    """Blank PII cells in one OPay-shape worksheet. Returns redaction count."""
+    n = 0
+    # Header row (row 2 in 1-indexed openpyxl; rows[1] in 0-indexed iter).
+    for col_idx, replacement in _XLSX_HEADER_REPLACEMENTS.items():
+        cell = ws.cell(row=2, column=col_idx + 1)
+        if cell.value is not None:
+            audit.append(f"header[r2c{col_idx + 1}]: {cell.value!r} -> {replacement!r}")
+            cell.value = replacement
+            n += 1
+    # Tx rows start at row 8 (after rows 1-5 metadata, 6 blank, 7 column header).
+    row = 8
+    while True:
+        date_cell = ws.cell(row=row, column=1)
+        if date_cell.value is None or str(date_cell.value).strip() == "":
+            break
+        # Column 3 = Description, column 8 = Transaction Reference.
+        desc = ws.cell(row=row, column=3)
+        if desc.value is not None:
+            audit.append(f"desc[r{row}]: {str(desc.value)[:30]!r} -> ''")
+            desc.value = ""
+            n += 1
+        ref = ws.cell(row=row, column=8)
+        if ref.value is not None:
+            original = str(ref.value)
+            shape = shape_preserve(original)
+            audit.append(f"ref[r{row}]: {original!r} -> {shape!r}")
+            ref.value = shape
+            n += 1
+        row += 1
+    return n
+
+
+def _redact_xlsx(src: Path, dst: Path) -> RedactReport:
+    report = RedactReport(bank="opay")
+    wb = load_workbook(src)
+    try:
+        for sheet_name in wb.sheetnames:
+            audit: list[str] = []
+            n = _xlsx_redact_sheet(wb[sheet_name], audit)
+            report.pages += 1
+            report.redactions += n
+            report.audit.append((report.pages, audit))
+        wb.save(str(dst))
+    finally:
+        wb.close()
+    return report
+
+
 class OPayRedactor(Redactor):
     bank = "opay"
+    supported_formats = ("pdf", "xlsx")
+
+    def redact(self, src: Path, dst: Path) -> RedactReport:
+        # Format dispatch by extension. XLSX path uses openpyxl cell-level
+        # rewrite (no font / layout drift to worry about); PDF path falls
+        # through to the inherited template-method pipeline.
+        try:
+            fmt = sniff_format(src)
+        except ValueError:
+            return super().redact(src, dst)
+        if fmt == "xlsx":
+            return _redact_xlsx(src, dst)
+        return super().redact(src, dst)
 
     def redact_header(
         self,
