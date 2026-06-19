@@ -116,7 +116,9 @@ def test_redactor_round_trip_strips_known_pii(tmp_path: Path) -> None:
     dst = tmp_path / "out.pdf"
 
     redactor = get("palmpay")
-    report = redactor.redact(src, dst)
+    result = redactor.redact(src)
+    dst.write_bytes(result.data)
+    report = result.report
     assert report.bank == "palmpay"
     assert report.pages == 1
     assert report.redactions > 0

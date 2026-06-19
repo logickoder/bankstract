@@ -48,6 +48,7 @@ SWEEPS: tuple[RegexSweep, ...] = (
 
 class ZenithRedactor(Redactor):
     bank = "zenith"
+    format_version = "zenith-2026-01"
 
     def redact_header(
         self,

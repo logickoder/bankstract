@@ -56,6 +56,7 @@ SWEEPS: tuple[RegexSweep, ...] = (
 
 class FBNRedactor(Redactor):
     bank = "fbn"
+    format_version = "fbn-2026-01"
 
     def redact_header(
         self,

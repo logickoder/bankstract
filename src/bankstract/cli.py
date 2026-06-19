@@ -12,7 +12,6 @@ from .parsers import all_parsers, get
 from .parsers.base import Parser
 from .reconcile import reconcile, verify_totals
 from .redactors import all_redactors
-from .redactors import get as get_redactor
 from .schema import ParseError, ParseResult, ReconciliationError
 from .writers.csv import write_csv
 from .writers.json import write_json
@@ -163,17 +162,33 @@ def redact_list() -> None:
 
 def _redactor_command(bank: str) -> click.Command:
     @redact.command(bank)
-    @click.argument("src", type=click.Path(exists=True, dir_okay=False, path_type=Path))
-    @click.argument("dst", type=click.Path(dir_okay=False, path_type=Path))
+    @click.argument("src", type=click.STRING)
+    @click.argument("dst", type=click.STRING)
     @click.option("--audit/--no-audit", default=True, help="Print per-page audit to stderr.")
-    def cmd(src: Path, dst: Path, audit: bool) -> None:
-        redactor = get_redactor(bank)
-        report = redactor.redact(src, dst)
-        click.echo(
-            f"{report.bank}: {report.redactions} redactions across {report.pages} pages -> {dst}"
+    def cmd(src: str, dst: str, audit: bool) -> None:
+        # Thin wrapper over bankstract.redact — single source of truth for
+        # the dispatch logic lives in _api. CLI just handles I/O framing.
+        from . import redact as _lib_redact
+
+        source = _read_source(src)
+        stdout_used = dst == "-"
+        try:
+            result = _lib_redact(source, bank=bank)
+        except ParseError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        if stdout_used:
+            sys.stdout.buffer.write(result.data)
+        else:
+            Path(dst).write_bytes(result.data)
+
+        _info(
+            f"{result.bank}: {result.report.redactions} redactions across "
+            f"{result.report.pages} pages -> {dst}",
+            stdout_used=stdout_used,
         )
         if audit:
-            for page_no, entries in report.audit:
+            for page_no, entries in result.report.audit:
                 if not entries:
                     continue
                 click.echo(f"\n[page {page_no}]", err=True)

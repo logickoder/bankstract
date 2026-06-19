@@ -11,7 +11,9 @@ from pathlib import Path
 
 from ._source import Source, rewind
 from .parsers import all_parsers, get
-from .schema import ParseError, ParseResult
+from .redactors import all_redactors
+from .redactors import get as get_redactor
+from .schema import ParseError, ParseResult, RedactResult
 
 # Lib API accepts a string path as a friendly shorthand on top of the
 # strict Path | IO[bytes] union used internally. Distinct name from
@@ -31,6 +33,11 @@ def list_parsers() -> list[str]:
     return sorted(all_parsers())
 
 
+def list_redactors() -> list[str]:
+    """Names of every registered redactor, sorted alphabetically."""
+    return sorted(all_redactors())
+
+
 def detect(source: SourceLike) -> str | None:
     """Return the bank name whose parser scores highest on `source`, or
     None if no parser claims it."""
@@ -41,6 +48,52 @@ def detect(source: SourceLike) -> str | None:
     if not candidates or candidates[0][1] <= 0:
         return None
     return candidates[0][0]
+
+
+def _detect_redactor(source: Source) -> str | None:
+    """Mirror of `detect` but iterating registered redactors. Each registered
+    redactor's bank name maps 1:1 to the matching parser; we route via the
+    parser's detect_confidence to avoid duplicating detection logic."""
+    parsers = all_parsers()
+    redactor_names = set(all_redactors())
+    candidates: list[tuple[str, float]] = []
+    for name, parser in parsers.items():
+        if name not in redactor_names:
+            continue
+        candidates.append((name, parser.detect_confidence(source)))
+    rewind(source)
+    candidates.sort(key=lambda t: t[1], reverse=True)
+    if not candidates or candidates[0][1] <= 0:
+        return None
+    return candidates[0][0]
+
+
+def redact(source: SourceLike, *, bank: str | None = None) -> RedactResult:
+    """Redact `source` into a `RedactResult` carrying bytes + metadata.
+
+    `bank=None` auto-detects via `detect_confidence` on every registered
+    redactor's matching parser. Pass an explicit bank name to skip
+    detection. `source` may be a `pathlib.Path`, a string path, or a
+    seekable binary stream (e.g. `io.BytesIO`). Output is always in-memory
+    bytes — the redactor never writes to disk on this path, so streaming
+    callers (HTTP responses, archives, Cloud workers) get the payload
+    without tempfile cleanup. Unrecognised format → `ParseError`."""
+    src = _normalize(source)
+    if bank is None:
+        try:
+            name = _detect_redactor(src)
+        except ValueError as exc:
+            raise ParseError(str(exc)) from exc
+        if name is None:
+            raise ParseError("no registered redactor detected this source")
+        redactor = get_redactor(name)
+    else:
+        redactor = get_redactor(bank)
+    rewind(src)
+    try:
+        return redactor.redact(src)
+    except ValueError as exc:
+        raise ParseError(str(exc)) from exc
 
 
 def parse(source: SourceLike, *, bank: str | None = None) -> ParseResult:

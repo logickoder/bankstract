@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 
 from .._source import Source
-from .._xlsx import Format
-from ..schema import ParseResult
+from ..schema import Format, ParseResult
 
 
 class Parser(ABC):

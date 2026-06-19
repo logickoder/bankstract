@@ -12,14 +12,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 from openpyxl.utils.exceptions import InvalidFileException  # type: ignore[import-untyped]
 
 from ._source import Source, rewind
-
-Format = Literal["pdf", "xlsx"]
+from .schema import Format
 
 _PDF_MAGIC = b"%PDF"
 _ZIP_MAGIC = b"PK"

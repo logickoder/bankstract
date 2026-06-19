@@ -19,17 +19,19 @@ Strategy:
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from io import BytesIO
 from typing import Any
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 
 from .._layout import classify
 from .._pymupdf import rect as _rect
+from .._source import Source, rewind
 from .._xlsx import sniff_format
+from ..schema import RedactReport, RedactResult
 from . import register
 from ._shared import RegexSweep, apply_regex_sweeps, page_rows, redact_word, shape_preserve
-from .base import Redactor, RedactReport
+from .base import Redactor
 
 # Column ranges are deliberately WIDER than the parser's COL_* — the parser
 # wants precise column attribution, the redactor wants to catch every word
@@ -44,6 +46,9 @@ PHONE_RE = re.compile(r"\b0\d{2}\s?\d{4}\s?\d{4}\b")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 ROW_TOL = 4.0
+
+FORMAT_VERSION_PDF = "opay-pdf-2026-01"
+FORMAT_VERSION_XLSX = "opay-xlsx-2026-01"
 
 SWEEPS: tuple[RegexSweep, ...] = (
     (PHONE_RE, "0800000000", "phone"),
@@ -92,9 +97,11 @@ def _xlsx_redact_sheet(ws: Any, audit: list[str]) -> int:
     return n
 
 
-def _redact_xlsx(src: Path, dst: Path) -> RedactReport:
+def _redact_xlsx(source: Source) -> RedactResult:
+    rewind(source)
+    handle: Any = source if hasattr(source, "read") else str(source)
+    wb = load_workbook(handle)
     report = RedactReport(bank="opay")
-    wb = load_workbook(src)
     try:
         for sheet_name in wb.sheetnames:
             audit: list[str] = []
@@ -102,27 +109,36 @@ def _redact_xlsx(src: Path, dst: Path) -> RedactReport:
             report.pages += 1
             report.redactions += n
             report.audit.append((report.pages, audit))
-        wb.save(str(dst))
+        buf = BytesIO()
+        wb.save(buf)
+        data = buf.getvalue()
     finally:
         wb.close()
-    return report
+    return RedactResult(
+        data=data,
+        bank="opay",
+        format="xlsx",
+        format_version=FORMAT_VERSION_XLSX,
+        report=report,
+    )
 
 
 class OPayRedactor(Redactor):
     bank = "opay"
     supported_formats = ("pdf", "xlsx")
+    format_version = FORMAT_VERSION_PDF
 
-    def redact(self, src: Path, dst: Path) -> RedactReport:
+    def redact(self, source: Source) -> RedactResult:
         # Format dispatch by extension. XLSX path uses openpyxl cell-level
         # rewrite (no font / layout drift to worry about); PDF path falls
         # through to the inherited template-method pipeline.
         try:
-            fmt = sniff_format(src)
+            fmt = sniff_format(source)
         except ValueError:
-            return super().redact(src, dst)
+            return super().redact(source)
         if fmt == "xlsx":
-            return _redact_xlsx(src, dst)
-        return super().redact(src, dst)
+            return _redact_xlsx(source)
+        return super().redact(source)
 
     def redact_header(
         self,

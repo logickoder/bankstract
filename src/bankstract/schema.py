@@ -1,8 +1,11 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+Format = Literal["pdf", "xlsx"]
 
 
 class Transaction(BaseModel):
@@ -50,6 +53,29 @@ class ParseResult:
     # MUST populate total_credit/total_debit so verify_totals still catches
     # silently-dropped rows.
     row_wise_reconcilable: bool = True
+
+
+@dataclass
+class RedactReport:
+    bank: str
+    pages: int = 0
+    redactions: int = 0
+    # (page_number, [audit-line, ...]) — surfaces the per-page label of every
+    # redaction performed. Cloud consumers log counts; never the entries
+    # themselves (they may carry partial PII fragments mid-redaction).
+    audit: list[tuple[int, list[str]]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RedactResult:
+    # Raw bytes of the redacted file (PDF or XLSX). In-memory only — the
+    # redactor never writes to disk on this path so streaming callers
+    # (HTTP responses, archives) get the payload without tempfile cleanup.
+    data: bytes
+    bank: str
+    format: Format
+    format_version: str
+    report: RedactReport
 
 
 class ParseError(Exception):

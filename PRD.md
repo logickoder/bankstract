@@ -43,7 +43,9 @@ bankstract closes that gap with one clean tool, one plugin contract, and communi
 | v0.7    | Per-parser `detect_confidence` disambiguation, FBN period extraction.            |
 | v0.8    | OPay parser (wallet section) + `ParseResult.row_wise_reconcilable` opt-out.       |
 | v0.9    | XLSX support architecture: `_xlsx.py` boundary, `supported_formats` per parser/redactor, OPay PDF + XLSX both first-class. |
-| v0.10+  | GTB (PDF), Kuda / Stanbic / Sparkle / ALAT (XLSX-first), Wise, Bamboo, Risevest.   |
+| v0.10   | Removed back-compat aliases; `SourceLike` vs `Source` disambiguation; `ValueError` → `ParseError` wrapping. |
+| v0.11   | `bankstract.redact()` lib API w/ in-memory `RedactResult.data: bytes`; `list_redactors()`; `Redactor` + `RedactReport` + `Format` re-exported. |
+| v0.12+  | GTB (PDF), Kuda / Stanbic / Sparkle / ALAT (XLSX-first), Wise, Bamboo, Risevest.   |
 
 **Out of scope:** category inference, ML-based parsing, GUI, pushing data into third-party trackers (those belong in downstream tools).
 

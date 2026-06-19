@@ -15,10 +15,10 @@ bankstract list                                # bank (formats)
 
 | Bank       | Formats   | Status        |
 | ---------- | --------- | ------------- |
-| PalmPay    | PDF       | v0.10 — alpha  |
-| First Bank | PDF       | v0.10 — alpha  |
-| Zenith     | PDF       | v0.10 — alpha  |
-| OPay       | PDF, XLSX | v0.10 — alpha  |
+| PalmPay    | PDF       | v0.11 — alpha  |
+| First Bank | PDF       | v0.11 — alpha  |
+| Zenith     | PDF       | v0.11 — alpha  |
+| OPay       | PDF, XLSX | v0.11 — alpha  |
 
 ## Install
 
@@ -86,8 +86,9 @@ Unparseable blocks are written to a `.log` sidecar next to the output file.
 ```python
 import bankstract
 
-bankstract.list_parsers()           # ['fbn', 'opay', 'palmpay', 'zenith']
-bankstract.detect("statement.pdf")  # 'palmpay' | None
+bankstract.list_parsers()             # ['fbn', 'opay', 'palmpay', 'zenith']
+bankstract.list_redactors()           # ['fbn', 'opay', 'palmpay', 'zenith']
+bankstract.detect("statement.pdf")    # 'palmpay' | None
 
 result = bankstract.parse("statement.pdf")            # auto-detect
 result = bankstract.parse(fp, bank="fbn")             # explicit; fp is BytesIO
@@ -96,6 +97,12 @@ result.metadata.account_holder
 result.metadata.statement_period_start
 result.transactions[0].balance
 result.format_version
+
+# Redact PII in-memory (no disk write); .data is the redacted file bytes.
+redacted = bankstract.redact("statement.pdf")         # auto-detect bank
+redacted = bankstract.redact(fp, bank="opay")         # explicit, stream input
+redacted.data                                         # bytes — stream to HTTP / write to disk
+redacted.report.redactions                            # count
 ```
 
 ### Public surface (semver-locked)
@@ -106,16 +113,22 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | --------------------- | ------------- | --------------------------------------------------- |
 | `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
-| `list_parsers`        | function      | sorted bank names                                   |
+| `list_parsers`        | function      | sorted bank names (parsers)                         |
+| `redact`              | function      | `redact(source, *, bank=None) -> RedactResult` — in-memory bytes |
+| `list_redactors`      | function      | sorted bank names (redactors)                       |
 | `Parser`              | ABC           | base class for new parsers                          |
+| `Redactor`            | ABC           | base class for new redactors                        |
 | `Transaction`         | pydantic      | row schema                                          |
 | `StatementMetadata`   | dataclass     | account holder / period / opening + closing balance |
 | `ParseResult`         | dataclass     | `transactions[]`, totals, `format_version`, metadata |
-| `ParseError`          | exception     | layout mismatch                                     |
+| `RedactResult`        | dataclass     | `data: bytes`, `bank`, `format`, `format_version`, `report` |
+| `RedactReport`        | dataclass     | `bank`, `pages`, `redactions`, `audit`              |
+| `Format`              | type alias    | `Literal["pdf", "xlsx"]`                            |
+| `ParseError`          | exception     | layout mismatch / undetectable source               |
 | `ReconciliationError` | exception     | invariant break                                     |
 | `__version__`         | str           | package version                                     |
 
-`source` accepts `pathlib.Path`, a string path (treated as a path), or a seekable binary stream (e.g. `io.BytesIO`). Auto-detection picks the parser with the highest `detect_confidence` score — ties resolve to registration order. Anything imported from a submodule prefixed with `_` (`bankstract._api`, `bankstract._pdfplumber`, `bankstract._layout`) is internal and may change in any release.
+`source` accepts `pathlib.Path`, a string path (treated as a path), or a seekable binary stream (e.g. `io.BytesIO`). Auto-detection picks the parser / redactor with the highest `detect_confidence` score — ties resolve to registration order. `redact()` returns bytes in-memory: no tempfile, no disk write — callers stream the payload straight to HTTP responses, archives, or `Path.write_bytes()` as needed. Anything imported from a submodule prefixed with `_` (`bankstract._api`, `bankstract._pdfplumber`, `bankstract._xlsx`, `bankstract._layout`) is internal and may change in any release.
 
 ## Reconciliation invariant
 
