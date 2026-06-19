@@ -5,9 +5,9 @@ Public API (semver-stable): everything re-exported below. Anything
 imported from a submodule prefixed with `_` is internal.
 """
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
-from ._api import detect, list_parsers, list_redactors, parse, redact
+from ._api import detect, list_parsers, list_redactors, parse, parse_to, redact
 from .parsers.base import Parser
 from .redactors.base import Redactor
 from .schema import (
@@ -20,6 +20,8 @@ from .schema import (
     StatementMetadata,
     Transaction,
 )
+from .writers.csv import write_csv
+from .writers.json import write_json
 
 __all__ = [
     "Format",
@@ -37,5 +39,8 @@ __all__ = [
     "list_parsers",
     "list_redactors",
     "parse",
+    "parse_to",
     "redact",
+    "write_csv",
+    "write_json",
 ]

@@ -30,7 +30,7 @@ from .._pymupdf import rect as _rect
 from ..parsers.fbn import COL_DETAIL, COL_REF
 from . import register
 from ._shared import (
-    RegexSweep,
+    DEFAULT_SWEEPS,
     apply_regex_sweeps,
     page_rows,
     redact_word,
@@ -42,16 +42,9 @@ HEADER_LABELS: dict[str, str] = {
     "Account Name:": "TEST USER",
 }
 
-PHONE_RE = re.compile(r"\b0\d{2}\s?\d{4}\s?\d{4}\b")
-EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 ACCT_NUM_RE = re.compile(r"\b\d{10}\b")
 
 ROW_TOL = 4.0
-
-SWEEPS: tuple[RegexSweep, ...] = (
-    (PHONE_RE, "0800000000", "phone"),
-    (EMAIL_RE, "test@example.com", "email"),
-)
 
 
 class FBNRedactor(Redactor):
@@ -102,7 +95,7 @@ class FBNRedactor(Redactor):
     ) -> None:
         for row in page_rows(page, ROW_TOL):
             covered: set[int] = set()
-            apply_regex_sweeps(page, row, SWEEPS, pending_text, audit, covered)
+            apply_regex_sweeps(page, row, DEFAULT_SWEEPS, pending_text, audit, covered)
 
             for idx, w in enumerate(row):
                 if idx in covered:

@@ -182,7 +182,7 @@ class Parser(ABC):
 Rules:
 - `detect()` is cheap — read first page (PDF) or sheet names (XLSX), match header string or column signature. No full parse.
 - `parse()` raises `ParseError` (carrying `format_version`) on layout mismatch. No silent return of `[]`.
-- Unparseable mid-document blocks go to a `.log` sidecar via the shared `log_unparseable()` helper. Never silently dropped.
+- Unparseable mid-document blocks must go to a `.log` sidecar. Never silently dropped. Add a shared helper in `writers/` when the first parser needs one — no speculative helper today.
 - Each parser self-registers in `parsers/__init__.py` via import side-effect. No central registry edit needed.
 - Share, don't duplicate: amount/account helpers live in `parsers/_money.py` (`parse_amount`, `parse_amount_optional`, `mask_account_number`); columnar walkers in `_columnar.py`; pdfplumber/openpyxl boundaries in `_common.py` / `_xlsx.py`.
 

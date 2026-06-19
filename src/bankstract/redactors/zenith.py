@@ -21,13 +21,12 @@ Strategy:
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .._pymupdf import rect as _rect
 from ..parsers.zenith import COL_DESC
 from . import register
-from ._shared import RegexSweep, apply_regex_sweeps, page_rows, redact_word
+from ._shared import DEFAULT_SWEEPS, apply_regex_sweeps, page_rows, redact_word
 from .base import Redactor
 
 HEADER_LABELS: dict[str, str] = {
@@ -35,15 +34,7 @@ HEADER_LABELS: dict[str, str] = {
     "ACCOUNT No.:": "0000000000",
 }
 
-PHONE_RE = re.compile(r"\b0\d{2}\s?\d{4}\s?\d{4}\b")
-EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-
 ROW_TOL = 4.0
-
-SWEEPS: tuple[RegexSweep, ...] = (
-    (PHONE_RE, "0800000000", "phone"),
-    (EMAIL_RE, "test@example.com", "email"),
-)
 
 
 class ZenithRedactor(Redactor):
@@ -106,7 +97,7 @@ class ZenithRedactor(Redactor):
 
         for row in rows:
             covered: set[int] = set()
-            apply_regex_sweeps(page, row, SWEEPS, pending_text, audit, covered)
+            apply_regex_sweeps(page, row, DEFAULT_SWEEPS, pending_text, audit, covered)
 
             row_top = row[0].top
             for idx, w in enumerate(row):

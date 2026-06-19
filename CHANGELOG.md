@@ -2,6 +2,24 @@
 
 Notable changes per release. Pre-1.0 — breaking changes land freely, called out in the relevant entry.
 
+## 0.12.0 — 2026-06-19
+
+### Added
+
+- **`bankstract.parse_to(source, *, format="csv", bank=None, reconcile=True) -> bytes`** — parse + serialize in one call. Mirrors the CLI's parse+write code path exactly so callers (Cloud workers, HTTP handlers) get byte-identical output to the CLI without reimplementing serialization. Single source of truth for canonical CSV / JSON.
+- **`bankstract.write_csv(transactions, target)`** and **`bankstract.write_json(result, target)`** promoted from `bankstract.writers.*` to the public re-export surface. Low-level access for callers that already hold a `ParseResult`.
+
+### Changed
+
+- CLI internal: write path consolidated via `parse_to`. User-facing flags unchanged — same `-f`, same `--no-reconcile`, same `-o -` semantics — but the byte stream now flows through `parse_to` rather than a per-command writer call. Flagged for downstream packagers tracking CLI semver.
+- CLI status line switched from `wrote N transactions -> <out>` to `wrote N bytes -> <out>`. Informational only — written to stderr when stdout is the data sink.
+- JSON output to a file now ends with a trailing `\n` (was a trailing `\n` on stdout only). Additive whitespace; no parser/consumer regression.
+
+### Notes
+
+- Zero-drift contract test (`test_parse_to_byte_identical_to_cli`) parametrizes over every committed PDF fixture × both formats. Subprocess CLI bytes must equal `parse_to` bytes exactly.
+- CI now runs the test matrix on `windows-latest` in addition to `ubuntu-latest` — catches line-ending regressions before release.
+
 ## 0.11.0 — 2026-06-19
 
 ### Added

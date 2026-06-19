@@ -18,7 +18,6 @@ Strategy:
 
 from __future__ import annotations
 
-import re
 from io import BytesIO
 from typing import Any
 
@@ -30,7 +29,7 @@ from .._source import Source, rewind
 from .._xlsx import sniff_format
 from ..schema import RedactReport, RedactResult
 from . import register
-from ._shared import RegexSweep, apply_regex_sweeps, page_rows, redact_word, shape_preserve
+from ._shared import DEFAULT_SWEEPS, apply_regex_sweeps, page_rows, redact_word, shape_preserve
 from .base import Redactor
 
 # Column ranges are deliberately WIDER than the parser's COL_* — the parser
@@ -42,18 +41,10 @@ from .base import Redactor
 DESC_ZONE: tuple[float, float] = (170.0, 305.0)
 REF_ZONE: tuple[float, float] = (450.0, 565.0)
 
-PHONE_RE = re.compile(r"\b0\d{2}\s?\d{4}\s?\d{4}\b")
-EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-
 ROW_TOL = 4.0
 
 FORMAT_VERSION_PDF = "opay-pdf-2026-01"
 FORMAT_VERSION_XLSX = "opay-xlsx-2026-01"
-
-SWEEPS: tuple[RegexSweep, ...] = (
-    (PHONE_RE, "0800000000", "phone"),
-    (EMAIL_RE, "test@example.com", "email"),
-)
 
 
 _XLSX_HEADER_REPLACEMENTS: dict[int, object] = {
@@ -199,7 +190,7 @@ class OPayRedactor(Redactor):
 
         for row in rows:
             covered: set[int] = set()
-            apply_regex_sweeps(page, row, SWEEPS, pending_text, audit, covered)
+            apply_regex_sweeps(page, row, DEFAULT_SWEEPS, pending_text, audit, covered)
 
             row_top = row[0].top
             if row_top < body_y_min:

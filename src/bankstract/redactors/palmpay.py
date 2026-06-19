@@ -25,7 +25,15 @@ from typing import Any
 from .._layout import classify, from_pymupdf_words, group_by_baseline
 from .._pymupdf import rect as _rect
 from . import register
-from ._shared import redact_range, redact_word, shape_preserve
+from ._shared import (
+    EMAIL_RE,
+    EMAIL_REPLACEMENT,
+    PHONE_RE,
+    PHONE_REPLACEMENT,
+    redact_range,
+    redact_word,
+    shape_preserve,
+)
 from .base import Redactor
 
 HEADER_LABELS: dict[str, str] = {
@@ -33,9 +41,7 @@ HEADER_LABELS: dict[str, str] = {
     "Address": "Test Address",
 }
 
-PHONE_RE = re.compile(r"\b0\d{2}\s?\d{4}\s?\d{4}\b")
 ACCT_SPACED_RE = re.compile(r"\b\d{3}\s\d{3}\s\d{4}\b")
-EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 NARRATION_PHRASES: frozenset[str] = frozenset(
     s.lower()
@@ -138,9 +144,9 @@ class PalmPayRedactor(Redactor):
             covered: set[int] = set()
 
             for regex, replacement, label in (
-                (PHONE_RE, "0800000000", "phone"),
+                (PHONE_RE, PHONE_REPLACEMENT, "phone"),
                 (ACCT_SPACED_RE, "000 000 0000", "acct-spaced"),
-                (EMAIL_RE, "test@example.com", "email"),
+                (EMAIL_RE, EMAIL_REPLACEMENT, "email"),
             ):
                 for m in regex.finditer(line_text):
                     redact_range(page, row, m.start(), m.end(), replacement, covered, pending_text)

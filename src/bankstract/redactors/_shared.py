@@ -14,6 +14,19 @@ from .._pymupdf import rect as _rect
 
 RegexSweep = tuple[re.Pattern[str], str, str]  # (pattern, replacement, audit label)
 
+# Shared PII regexes + canonical replacements. Every redactor scrubs the same
+# phone + email patterns; per-bank files add their own bank-specific sweeps
+# (e.g. PalmPay's spaced-account-number pattern) on top.
+PHONE_RE = re.compile(r"\b0\d{2}\s?\d{4}\s?\d{4}\b")
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+PHONE_REPLACEMENT = "0800000000"
+EMAIL_REPLACEMENT = "test@example.com"
+
+DEFAULT_SWEEPS: tuple[RegexSweep, ...] = (
+    (PHONE_RE, PHONE_REPLACEMENT, "phone"),
+    (EMAIL_RE, EMAIL_REPLACEMENT, "email"),
+)
+
 
 def shape_preserve(text: str) -> str:
     """Replace digits with '0' and ASCII letters with 'x'; keep everything else.

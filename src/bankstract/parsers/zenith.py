@@ -33,6 +33,7 @@ from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._columnar import (
     ColumnSpec,
+    amount_in,
     has_date_and_balance,
     walk_rows,
 )
@@ -92,16 +93,6 @@ def _is_chrome_row(row: list[Word]) -> bool:
     return False
 
 
-def _amount_in(cols: dict[str, list[Word]], key: str) -> Decimal:
-    for w in cols.get(key, []):
-        if classify(w.text) == "amount":
-            amt = parse_amount(w.text)
-            if amt != 0:
-                return amt
-            break
-    return Decimal("0")
-
-
 def _build_transaction(
     cols: dict[str, list[Word]],
     continuation_tokens: list[str],
@@ -112,8 +103,8 @@ def _build_transaction(
     return Transaction(
         date=datetime.strptime(date_word.text, "%d/%m/%Y"),
         narration=" ".join(desc_tokens + continuation_tokens).strip(),
-        debit=_amount_in(cols, "debit"),
-        credit=_amount_in(cols, "credit"),
+        debit=amount_in(cols, "debit"),
+        credit=amount_in(cols, "credit"),
         balance=parse_amount(balance_word.text),
     )
 

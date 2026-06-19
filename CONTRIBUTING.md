@@ -53,6 +53,17 @@ _FIXTURES = [
 
 CLAUDE.md directive 3 is load-bearing. No real personal names, business names, addresses, phone digits, BVN, or account numbers may appear inline in source, tests, or committed fixtures. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`). Raw statements live only in gitignored `_local/`.
 
+## Adding a canonical output writer
+
+`bankstract.parse_to` is the single source of truth for parse + serialize. Any new canonical output format (NOT app-specific — see below) ships through it:
+
+1. New module `src/bankstract/writers/<format>.py` exposing `write_<format>(result_or_transactions, target: Path | TextIO) -> int`.
+2. Extend the `Literal["csv", "json"]` annotation in `_api.parse_to` to include the new format and add a dispatch branch.
+3. Re-export `write_<format>` in `bankstract/__init__.py` (`__all__` + import block).
+4. Parametrize `test_parse_to_byte_identical_to_cli` (in `tests/test_lib_api.py`) over the new format. The CLI subprocess byte-identical check is the load-bearing zero-drift contract.
+
+Non-canonical / app-specific writers (BB-Wallet CSV, YNAB CSV, Money Manager, etc.) do NOT ship in the engine. They live in consumer tools (e.g. `budgetbakers-wallet-importer`) that read the canonical CSV. The engine emits one canonical CSV + one canonical JSON, period — see PRD § Canonical CSV schema.
+
 ## Reconciliation invariant
 
 Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance` (banks with a balance column) OR where the parsed credit/debit sums match the statement header's totals (banks without). The CLI applies whichever invariants the parser supplied evidence for. Never weaken `reconcile.py` to make tests pass — the parser is wrong, not the invariant.

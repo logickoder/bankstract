@@ -1,22 +1,23 @@
 import sys
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import click
 
-from . import __version__
+from . import __version__, detect, parse_to
 from ._source import Source
 from ._xlsx import sniff_format
 from .parsers import all_parsers, get
-from .parsers.base import Parser
-from .reconcile import reconcile, verify_totals
 from .redactors import all_redactors
-from .schema import ParseError, ParseResult, ReconciliationError
-from .writers.csv import write_csv
-from .writers.json import write_json
+from .schema import ParseError, ReconciliationError
 
-Format = Literal["csv", "json"]
+# Output format type. Inline Literal at call sites is the Python idiom,
+# but the alias here keeps the long function signatures readable. Distinct
+# name from `schema.Format` (the INPUT format alias — pdf/xlsx) to avoid
+# the "two unrelated Formats" collision flagged in audit.
+_OutputFormat = Literal["csv", "json"]
 
 
 def _read_source(pdf_arg: str) -> Source:
@@ -30,15 +31,31 @@ def _read_source(pdf_arg: str) -> Source:
     return p
 
 
+def _write_bytes(data: bytes, output: str) -> None:
+    if output == "-":
+        sys.stdout.buffer.write(data)
+    else:
+        Path(output).write_bytes(data)
+
+
 def _info(msg: str, *, stdout_used: bool) -> None:
     click.echo(msg, err=stdout_used)
 
 
-def _write_result(result: ParseResult, output: str, fmt: Format) -> int:
-    target = sys.stdout if output == "-" else Path(output)
-    if fmt == "json":
-        return write_json(result, target)
-    return write_csv(result.transactions, target)
+def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
+    """Shared `-o/-f/--no-reconcile` options for every parse-shaped command.
+    Stacked bottom-up; Click binds by parameter name, not decorator order."""
+    f = click.option("--no-reconcile", is_flag=True, help="Skip reconciliation invariant check.")(f)
+    f = click.option(
+        "-f",
+        "--format",
+        "fmt",
+        type=click.Choice(["csv", "json"]),
+        default="csv",
+        show_default=True,
+    )(f)
+    f = click.option("-o", "--output", required=True, type=click.STRING)(f)
+    return f
 
 
 @click.group()
@@ -58,50 +75,32 @@ def list_parsers_cmd() -> None:
 
 @main.command("auto")
 @click.argument("pdf", type=click.STRING)
-@click.option("-o", "--output", required=True, type=click.STRING)
-@click.option(
-    "-f",
-    "--format",
-    "fmt",
-    type=click.Choice(["csv", "json"]),
-    default="csv",
-    show_default=True,
-)
-@click.option("--no-reconcile", is_flag=True, help="Skip reconciliation invariant check.")
-def auto(pdf: str, output: str, fmt: Format, no_reconcile: bool) -> None:
+@_io_options
+def auto(pdf: str, output: str, fmt: _OutputFormat, no_reconcile: bool) -> None:
     """Detect bank automatically and parse."""
     source = _read_source(pdf)
-    stdout_used = output == "-"
-    candidates = [(name, p, p.detect_confidence(source)) for name, p in all_parsers().items()]
-    candidates.sort(key=lambda t: t[2], reverse=True)
-    if not candidates or candidates[0][2] <= 0:
+    try:
+        name = detect(source)
+    except ParseError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if name is None:
         raise click.ClickException(f"no registered parser detected {pdf}")
-    name, parser, _ = candidates[0]
-    _info(f"detected: {name}", stdout_used=stdout_used)
-    _run(parser, source, output, fmt, no_reconcile)
+    _info(f"detected: {name}", stdout_used=(output == "-"))
+    _run(name, source, output, fmt, no_reconcile)
 
 
 def _bank_command(bank: str) -> click.Command:
     @main.command(bank)
     @click.argument("pdf", type=click.STRING)
-    @click.option("-o", "--output", required=True, type=click.STRING)
-    @click.option(
-        "-f",
-        "--format",
-        "fmt",
-        type=click.Choice(["csv", "json"]),
-        default="csv",
-        show_default=True,
-    )
-    @click.option("--no-reconcile", is_flag=True, help="Skip reconciliation invariant check.")
-    def cmd(pdf: str, output: str, fmt: Format, no_reconcile: bool) -> None:
-        source = _read_source(pdf)
-        _run(get(bank), source, output, fmt, no_reconcile)
+    @_io_options
+    def cmd(pdf: str, output: str, fmt: _OutputFormat, no_reconcile: bool) -> None:
+        _run(bank, _read_source(pdf), output, fmt, no_reconcile)
 
     return cmd
 
 
-def _check_supported(parser: Parser, source: Source) -> None:
+def _check_supported(bank: str, source: Source) -> None:
+    parser = get(bank)
     try:
         src_fmt = sniff_format(source)
     except ValueError as exc:
@@ -112,41 +111,25 @@ def _check_supported(parser: Parser, source: Source) -> None:
         raise click.ClickException(str(exc)) from exc
     if src_fmt not in parser.supported_formats:
         raise click.ClickException(
-            f"{parser.bank} parser does not support {src_fmt!r} input "
+            f"{bank} parser does not support {src_fmt!r} input "
             f"(supported: {', '.join(parser.supported_formats)})"
         )
 
 
-def _run(parser: Parser, source: Source, output: str, fmt: Format, no_reconcile: bool) -> None:
+def _run(bank: str, source: Source, output: str, fmt: _OutputFormat, no_reconcile: bool) -> None:
     stdout_used = output == "-"
-    _check_supported(parser, source)
+    _check_supported(bank, source)
     try:
-        result: ParseResult = parser.parse(source)
+        data = parse_to(source, format=fmt, bank=bank, reconcile=not no_reconcile)
     except ParseError as exc:
         raise click.ClickException(
             f"parse error ({getattr(exc, 'format_version', 'unknown')}): {exc}"
         ) from exc
+    except ReconciliationError as exc:
+        raise click.ClickException(f"reconciliation failed: {exc}") from exc
 
-    if not no_reconcile:
-        try:
-            # Run every check the parser supplied evidence for. reconcile()
-            # is row-wise (needs balance column); verify_totals() is sum-based
-            # (needs header totals). Banks like FBN ship both and benefit from
-            # running both — totals catch dropped rows, row-wise catches
-            # per-row arithmetic errors that happen to sum out.
-            if result.total_credit is not None and result.total_debit is not None:
-                verify_totals(
-                    result.transactions,
-                    total_credit=result.total_credit,
-                    total_debit=result.total_debit,
-                )
-            if result.row_wise_reconcilable:
-                reconcile(result.transactions)
-        except ReconciliationError as exc:
-            raise click.ClickException(f"reconciliation failed: {exc}") from exc
-
-    count = _write_result(result, output, fmt)
-    _info(f"wrote {count} transactions -> {output}", stdout_used=stdout_used)
+    _write_bytes(data, output)
+    _info(f"wrote {len(data)} bytes -> {output}", stdout_used=stdout_used)
 
 
 @main.group()
@@ -171,17 +154,13 @@ def _redactor_command(bank: str) -> click.Command:
         from . import redact as _lib_redact
 
         source = _read_source(src)
-        stdout_used = dst == "-"
         try:
             result = _lib_redact(source, bank=bank)
         except ParseError as exc:
             raise click.ClickException(str(exc)) from exc
 
-        if stdout_used:
-            sys.stdout.buffer.write(result.data)
-        else:
-            Path(dst).write_bytes(result.data)
-
+        _write_bytes(result.data, dst)
+        stdout_used = dst == "-"
         _info(
             f"{result.bank}: {result.report.redactions} redactions across "
             f"{result.report.pages} pages -> {dst}",

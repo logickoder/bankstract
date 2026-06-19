@@ -7,17 +7,22 @@ change in any release.
 
 from __future__ import annotations
 
+import io
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from ._source import Source, rewind
 from .parsers import all_parsers, get
 from .parsers.base import Parser
+from .reconcile import reconcile as _reconcile_rows
+from .reconcile import verify_totals
 from .redactors import all_redactors
 from .redactors import get as get_redactor
 from .redactors.base import Redactor
 from .schema import ParseError, ParseResult, RedactResult
+from .writers.csv import write_csv
+from .writers.json import write_json
 
 # Lib API accepts a string path as a friendly shorthand on top of the
 # strict Path | IO[bytes] union used internally. Distinct name from
@@ -134,6 +139,61 @@ def parse(source: SourceLike, *, bank: str | None = None) -> ParseResult:
         worker=_parse_call,
         none_match_msg="no registered parser detected this source",
     )
+
+
+def parse_to(
+    source: SourceLike,
+    *,
+    format: Literal["csv", "json"] = "csv",
+    bank: str | None = None,
+    reconcile: bool = True,
+) -> bytes:
+    """Parse `source` and serialize the result to bytes in one call.
+
+    Mirrors the CLI's parse + write code path exactly — same writer, same
+    column order, same encoding. Use this from HTTP handlers, stdout pipes,
+    or anywhere bytes are needed without staging a temp file.
+
+    `format` matches the CLI `-f` flag: "csv" (default) or "json".
+    `reconcile=True` (default) runs the reconciliation invariant before
+    serializing. Caller chooses on/off per call — Cloud workers may want a
+    debug-skip path or a strict-only path; same engine code path either way.
+
+    `bank=None` auto-detects via `detect_confidence`; pass an explicit bank
+    name to skip detection. `source` accepts a `pathlib.Path`, a string path,
+    or a seekable binary stream (e.g. `io.BytesIO`). An unrecognised
+    output `format` raises `ValueError`; a layout mismatch surfaces as
+    `ParseError`; an invariant break surfaces as `ReconciliationError`.
+    """
+    if format not in ("csv", "json"):
+        raise ValueError(f"unsupported output format: {format!r} (expected 'csv' or 'json')")
+
+    result = parse(source, bank=bank)
+
+    if reconcile:
+        # Run every check the parser supplied evidence for. verify_totals is
+        # sum-based (needs header totals); _reconcile_rows is row-wise (needs a
+        # balance column). Banks like FBN ship both — totals catch dropped
+        # rows, row-wise catches per-row arithmetic that happens to sum out.
+        if result.total_credit is not None and result.total_debit is not None:
+            verify_totals(
+                result.transactions,
+                total_credit=result.total_credit,
+                total_debit=result.total_debit,
+            )
+        if result.row_wise_reconcilable:
+            _reconcile_rows(result.transactions)
+
+    buf = io.StringIO()
+    if format == "csv":
+        write_csv(result.transactions, buf)
+    else:
+        write_json(result, buf)
+    # csv.writer emits "\r\n" per RFC 4180; StringIO doesn't translate.
+    # Defensive replace catches any wrapped-stream path that might double-
+    # translate (Windows text mode through a layered writer). Idempotent on
+    # clean input — already-correct bytes pass through untouched.
+    return buf.getvalue().encode("utf-8").replace(b"\r\r\n", b"\r\n")
 
 
 def redact(source: SourceLike, *, bank: str | None = None) -> RedactResult:

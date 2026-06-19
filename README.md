@@ -15,10 +15,10 @@ bankstract list                                # bank (formats)
 
 | Bank       | Formats   | Status        |
 | ---------- | --------- | ------------- |
-| PalmPay    | PDF       | v0.11 — alpha  |
-| First Bank | PDF       | v0.11 — alpha  |
-| Zenith     | PDF       | v0.11 — alpha  |
-| OPay       | PDF, XLSX | v0.11 — alpha  |
+| PalmPay    | PDF       | v0.12 — alpha  |
+| First Bank | PDF       | v0.12 — alpha  |
+| Zenith     | PDF       | v0.12 — alpha  |
+| OPay       | PDF, XLSX | v0.12 — alpha  |
 
 ## Install
 
@@ -98,6 +98,16 @@ result.metadata.statement_period_start
 result.transactions[0].balance
 result.format_version
 
+# Parse + serialize in one call — byte-identical to the CLI's output.
+csv_bytes  = bankstract.parse_to("statement.pdf")                   # default format="csv"
+json_bytes = bankstract.parse_to(fp, format="json", bank="opay")    # explicit
+debug_bytes = bankstract.parse_to(fp, reconcile=False)              # skip invariant
+
+# Low-level writers — if you already hold a ParseResult.
+from pathlib import Path
+bankstract.write_csv(result.transactions, Path("out.csv"))
+bankstract.write_json(result, Path("out.json"))
+
 # Redact PII in-memory (no disk write); .data is the redacted file bytes.
 redacted = bankstract.redact("statement.pdf")         # auto-detect bank
 redacted = bankstract.redact(fp, bank="opay")         # explicit, stream input
@@ -112,8 +122,11 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | Name                  | Kind          | Purpose                                             |
 | --------------------- | ------------- | --------------------------------------------------- |
 | `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
+| `parse_to`            | function      | `parse_to(source, *, format="csv", bank=None, reconcile=True) -> bytes` — byte-identical to CLI |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
 | `list_parsers`        | function      | sorted bank names (parsers)                         |
+| `write_csv`           | function      | `write_csv(transactions, target: Path \| TextIO) -> int` |
+| `write_json`          | function      | `write_json(result, target: Path \| TextIO) -> int` |
 | `redact`              | function      | `redact(source, *, bank=None) -> RedactResult` — in-memory bytes |
 | `list_redactors`      | function      | sorted bank names (redactors)                       |
 | `Parser`              | ABC           | base class for new parsers                          |
