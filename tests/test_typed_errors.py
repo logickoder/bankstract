@@ -58,6 +58,32 @@ def test_encrypted_xlsx_caught_by_base_parse_error() -> None:
         bankstract.parse(ENCRYPTED_XLSX, bank="opay")
 
 
+def test_encrypted_pdf_auto_detect_raises_typed() -> None:
+    # Auto-detect path: no `bank=` argument. Engine must surface
+    # EncryptedSourceError to the demo, not the generic "no parser detected"
+    # ParseError that downgrades the actionable cause.
+    with pytest.raises(EncryptedSourceError, match="password-protected PDF"):
+        bankstract.parse(ENCRYPTED_PDF)
+
+
+def test_encrypted_xlsx_auto_detect_raises_typed() -> None:
+    with pytest.raises(EncryptedSourceError, match="password-protected XLSX"):
+        bankstract.parse(ENCRYPTED_XLSX)
+
+
+def test_detect_encrypted_pdf_raises_typed() -> None:
+    # bankstract.detect() should surface encryption too. Returning None would
+    # collapse to the same drift-vs-encrypted ambiguity the demo is trying to
+    # break apart.
+    with pytest.raises(EncryptedSourceError):
+        bankstract.detect(ENCRYPTED_PDF)
+
+
+def test_detect_encrypted_xlsx_raises_typed() -> None:
+    with pytest.raises(EncryptedSourceError):
+        bankstract.detect(ENCRYPTED_XLSX)
+
+
 def test_empty_pdf_raises_empty_statement_error(tmp_path: Path) -> None:
     # A minimal 1-byte PDF header isn't extractable as a real PDF, but parsers
     # also catch zero-words via their `extract_words_per_page` branch. Use a

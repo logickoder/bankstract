@@ -23,7 +23,7 @@ from decimal import Decimal
 
 from .._layout import Word, classify, group_by_baseline
 from .._source import Source
-from ..schema import EmptyStatementError, ParseResult, StatementMetadata, Transaction
+from ..schema import ParseResult, StatementMetadata, Transaction
 from . import register
 from ._columnar import (
     ColumnSpec,
@@ -31,7 +31,13 @@ from ._columnar import (
     has_date_and_balance,
     walk_rows,
 )
-from ._common import extract_words_per_page, first_page_text, marker_fraction
+from ._common import (
+    extract_words_per_page,
+    first_page_text,
+    marker_fraction,
+    raise_empty_pdf,
+    raise_no_transactions,
+)
 from ._money import mask_account_number, parse_amount
 from .base import Parser
 
@@ -183,11 +189,7 @@ class FBNParser(Parser):
     def parse(self, source: Source) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:
-            raise EmptyStatementError(
-                "empty PDF",
-                format_version=FORMAT_VERSION,
-                marker_coverage=0.0,
-            )
+            raise_empty_pdf(FORMAT_VERSION)
 
         total_credit, total_debit = _extract_totals(words_per_page)
         text = first_page_text(source)
@@ -203,13 +205,10 @@ class FBNParser(Parser):
         )
 
         if not transactions:
-            # Walk completed cleanly but extracted nothing. High coverage points
-            # at a legitimately empty statement; lower coverage at silent layout
-            # drift. Cloud / CLI distinguishes via marker_coverage on the raise.
-            raise EmptyStatementError(
-                "no transactions parsed — empty statement or silent layout drift",
+            raise_no_transactions(
                 format_version=FORMAT_VERSION,
-                marker_coverage=marker_fraction(text, HEADER_MARKERS),
+                text=text,
+                markers=HEADER_MARKERS,
             )
 
         return ParseResult(

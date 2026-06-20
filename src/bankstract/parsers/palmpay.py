@@ -22,15 +22,15 @@ from .._layout import (
     group_by_baseline,
 )
 from .._source import Source
-from ..schema import (
-    EmptyStatementError,
-    LayoutDriftError,
-    ParseResult,
-    StatementMetadata,
-    Transaction,
-)
+from ..schema import LayoutDriftError, ParseResult, StatementMetadata, Transaction
 from . import register
-from ._common import extract_words_per_page, first_page_text, marker_fraction
+from ._common import (
+    extract_words_per_page,
+    first_page_text,
+    marker_fraction,
+    raise_empty_pdf,
+    raise_no_transactions,
+)
 from ._money import mask_account_number, parse_amount
 from .base import Parser
 
@@ -182,11 +182,7 @@ class PalmPayParser(Parser):
     def parse(self, source: Source) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:
-            raise EmptyStatementError(
-                "empty PDF",
-                format_version=FORMAT_VERSION,
-                marker_coverage=0.0,
-            )
+            raise_empty_pdf(FORMAT_VERSION)
 
         total_in, total_out = _extract_totals(words_per_page)
         # PalmPay has no per-row balance column, so reconciliation depends
@@ -225,10 +221,10 @@ class PalmPayParser(Parser):
         flush()
 
         if not transactions:
-            raise EmptyStatementError(
-                "no transactions parsed — empty statement or silent layout drift",
+            raise_no_transactions(
                 format_version=FORMAT_VERSION,
-                marker_coverage=marker_fraction(first_page_text(source), HEADER_MARKERS),
+                text=first_page_text(source),
+                markers=HEADER_MARKERS,
             )
 
         return ParseResult(

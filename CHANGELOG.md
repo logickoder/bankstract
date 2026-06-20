@@ -20,6 +20,7 @@ Notable changes per release. Pre-1.0 — breaking changes land freely, called ou
 ### Internal
 
 - Boundary modules (`_pdfplumber.py`, `_xlsx.py`) raise `EncryptedSourceError` for encrypted sources. `_pdfplumber` catches `PdfminerException` and inspects `args[0]` for `PDFPasswordIncorrect`; `_xlsx` catches `BadZipFile` + `InvalidFileException` + `KeyError` and sniffs CDFV2 magic.
+- `parsers/_common.first_page_text` + `all_pages_text` now re-raise `EncryptedSourceError` instead of swallowing it via the catchall `except Exception`. Without this, the auto-detect path (`bankstract.parse(source)` with no `bank=`) silently downgraded encrypted PDFs to `ParseError("no registered parser detected")`, burying the actionable cause from Cloud / CLI consumers.
 - `sniff_format` now maps CDFV2 magic to `"xlsx"` so the dispatch reaches `open_workbook`, which then raises the typed encryption error.
 - Each parser's prior catchall `raise ParseError(...)` call sites audited and reclassified into `EmptyStatementError` / `LayoutDriftError` per the actual cause.
 - Test fixtures `tests/fixtures/encrypted_sample.{pdf,xlsx}` shipped (password `test123`); regen tool at `scripts/regen-encrypted-fixtures.py`.

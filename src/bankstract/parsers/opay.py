@@ -43,7 +43,13 @@ from ..schema import (
     Transaction,
 )
 from . import register
-from ._common import extract_words_per_page, first_page_text, marker_fraction
+from ._common import (
+    extract_words_per_page,
+    first_page_text,
+    marker_fraction,
+    raise_empty_pdf,
+    raise_no_transactions,
+)
 from ._money import mask_account_number, parse_amount, parse_amount_optional
 from .base import Parser
 
@@ -368,11 +374,7 @@ def _parse_xlsx(source: Source) -> ParseResult:
 def _parse_pdf(source: Source) -> ParseResult:
     words_per_page = extract_words_per_page(source)
     if not words_per_page:
-        raise EmptyStatementError(
-            "empty PDF",
-            format_version=FORMAT_VERSION_PDF,
-            marker_coverage=0.0,
-        )
+        raise_empty_pdf(FORMAT_VERSION_PDF)
 
     transactions: list[Transaction] = []
     for page_idx, page_words in enumerate(words_per_page):
@@ -385,10 +387,10 @@ def _parse_pdf(source: Source) -> ParseResult:
     text = first_page_text(source)
 
     if not transactions:
-        raise EmptyStatementError(
-            "no transactions parsed — empty statement or silent layout drift",
+        raise_no_transactions(
             format_version=FORMAT_VERSION_PDF,
-            marker_coverage=marker_fraction(text, HEADER_MARKERS),
+            text=text,
+            markers=HEADER_MARKERS,
         )
 
     total_credit, total_debit = _extract_totals(text)
