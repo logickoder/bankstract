@@ -34,9 +34,16 @@ from decimal import Decimal
 from .._layout import Word, classify, group_by_baseline
 from .._source import Source
 from .._xlsx import open_workbook, sniff_format
-from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
+from ..schema import (
+    EmptyStatementError,
+    LayoutDriftError,
+    ParseError,
+    ParseResult,
+    StatementMetadata,
+    Transaction,
+)
 from . import register
-from ._common import extract_words_per_page, first_page_text
+from ._common import extract_words_per_page, first_page_text, marker_fraction
 from ._money import mask_account_number, parse_amount, parse_amount_optional
 from .base import Parser
 
@@ -288,16 +295,16 @@ def _parse_xlsx(source: Source) -> ParseResult:
     """
     with open_workbook(source) as wb:
         if WALLET_SHEET not in wb.sheetnames:
-            raise ParseError(
-                f"sheet {WALLET_SHEET!r} missing — layout drift?",
+            raise LayoutDriftError(
+                f"sheet {WALLET_SHEET!r} missing — layout drift",
                 format_version=FORMAT_VERSION_XLSX,
             )
         ws = wb[WALLET_SHEET]
         rows = list(ws.iter_rows(values_only=True))
 
     if len(rows) < 8:
-        raise ParseError(
-            "wallet sheet too short — layout drift?",
+        raise LayoutDriftError(
+            "wallet sheet too short — layout drift",
             format_version=FORMAT_VERSION_XLSX,
         )
 
@@ -331,9 +338,13 @@ def _parse_xlsx(source: Source) -> ParseResult:
         )
 
     if not transactions:
-        raise ParseError(
-            "no transactions parsed — wallet sheet empty?",
+        # Wallet sheet existed + shape passed — coverage is full by detect's
+        # binary sheetname-match definition. Empty sheet is the most likely
+        # cause; drift would show as missing sheet (already caught above).
+        raise EmptyStatementError(
+            "no transactions parsed — wallet sheet empty",
             format_version=FORMAT_VERSION_XLSX,
+            marker_coverage=1.0,
         )
 
     return ParseResult(
@@ -357,7 +368,11 @@ def _parse_xlsx(source: Source) -> ParseResult:
 def _parse_pdf(source: Source) -> ParseResult:
     words_per_page = extract_words_per_page(source)
     if not words_per_page:
-        raise ParseError("empty PDF", format_version=FORMAT_VERSION_PDF)
+        raise EmptyStatementError(
+            "empty PDF",
+            format_version=FORMAT_VERSION_PDF,
+            marker_coverage=0.0,
+        )
 
     transactions: list[Transaction] = []
     for page_idx, page_words in enumerate(words_per_page):
@@ -367,13 +382,15 @@ def _parse_pdf(source: Source) -> ParseResult:
         if hit_section_end:
             break
 
+    text = first_page_text(source)
+
     if not transactions:
-        raise ParseError(
-            "no transactions parsed — layout mismatch or empty statement",
+        raise EmptyStatementError(
+            "no transactions parsed — empty statement or silent layout drift",
             format_version=FORMAT_VERSION_PDF,
+            marker_coverage=marker_fraction(text, HEADER_MARKERS),
         )
 
-    text = first_page_text(source)
     total_credit, total_debit = _extract_totals(text)
     return ParseResult(
         transactions=transactions,
@@ -418,7 +435,7 @@ class OPayParser(Parser):
             return 0.0
         if fmt == "pdf":
             text = first_page_text(source)
-            return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
+            return marker_fraction(text, HEADER_MARKERS)
         if fmt == "xlsx":
             return 1.0 if self.detect(source) else 0.0
         return 0.0
@@ -427,11 +444,18 @@ class OPayParser(Parser):
         try:
             fmt = sniff_format(source)
         except ValueError as exc:
+            # type-unknown: sniff failed on neither-PDF-nor-XLSX magic. Not
+            # encryption (boundary modules handle that), not detect (we got
+            # here AFTER detect_confidence picked opay). Truly undiagnosable
+            # at this layer.
             raise ParseError(str(exc), format_version="opay-unknown") from exc
         if fmt == "xlsx":
             return _parse_xlsx(source)
         if fmt == "pdf":
             return _parse_pdf(source)
+        # type-unknown: defensive raise for a sniff_format return outside the
+        # Literal["pdf","xlsx"] contract. Unreachable today; keeps the audit
+        # honest if sniff_format ever grows a third return.
         raise ParseError(f"unsupported source format: {fmt}", format_version="opay-unknown")
 
 

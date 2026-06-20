@@ -29,7 +29,7 @@ from decimal import Decimal
 
 from .._layout import Word, classify
 from .._source import Source
-from ..schema import ParseError, ParseResult, StatementMetadata, Transaction
+from ..schema import EmptyStatementError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._columnar import (
     ColumnSpec,
@@ -37,7 +37,7 @@ from ._columnar import (
     has_date_and_balance,
     walk_rows,
 )
-from ._common import extract_words_per_page, first_page_text
+from ._common import extract_words_per_page, first_page_text, marker_fraction
 from ._money import mask_account_number, parse_amount
 from .base import Parser
 
@@ -151,13 +151,16 @@ class ZenithParser(Parser):
         return any(marker in text for marker in HEADER_MARKERS)
 
     def detect_confidence(self, source: Source) -> float:
-        text = first_page_text(source)
-        return sum(1 for m in HEADER_MARKERS if m in text) / len(HEADER_MARKERS)
+        return marker_fraction(first_page_text(source), HEADER_MARKERS)
 
     def parse(self, source: Source) -> ParseResult:
         words_per_page = extract_words_per_page(source)
         if not words_per_page:
-            raise ParseError("empty PDF", format_version=FORMAT_VERSION)
+            raise EmptyStatementError(
+                "empty PDF",
+                format_version=FORMAT_VERSION,
+                marker_coverage=0.0,
+            )
 
         transactions = walk_rows(
             words_per_page,
@@ -170,9 +173,10 @@ class ZenithParser(Parser):
         )
 
         if not transactions:
-            raise ParseError(
-                "no transactions parsed — layout mismatch or empty statement",
+            raise EmptyStatementError(
+                "no transactions parsed — empty statement or silent layout drift",
                 format_version=FORMAT_VERSION,
+                marker_coverage=marker_fraction(first_page_text(source), HEADER_MARKERS),
             )
 
         return ParseResult(

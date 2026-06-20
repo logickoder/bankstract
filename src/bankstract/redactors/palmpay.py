@@ -31,6 +31,7 @@ from ._shared import (
     PHONE_RE,
     PHONE_REPLACEMENT,
     redact_range,
+    redact_rect,
     redact_word,
     shape_preserve,
 )
@@ -123,12 +124,11 @@ class PalmPayRedactor(Redactor):
         for label, replacement in HEADER_LABELS.items():
             for hit in page.search_for(label):
                 target = _rect(hit.x1 + 2, hit.y0, page_rect.x1 - 20, hit.y1 + 2)
-                page.add_redact_annot(target, fill=(1, 1, 1))
-                pending_text.append((target, replacement))
+                redact_rect(page, target, replacement, pending_text)
                 audit.append(f"header[{label}] -> {replacement!r}")
                 if label == "Address":
                     wrap = _rect(hit.x0, hit.y1, page_rect.x1 - 20, hit.y1 + 14)
-                    page.add_redact_annot(wrap, fill=(1, 1, 1))
+                    redact_rect(page, wrap, "", pending_text)
                     audit.append("header[Address-wrap] -> (blank)")
 
     def redact_body(

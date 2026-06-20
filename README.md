@@ -15,10 +15,10 @@ bankstract list                                # bank (formats)
 
 | Bank       | Formats   | Status        |
 | ---------- | --------- | ------------- |
-| PalmPay    | PDF       | v0.12 — alpha  |
-| First Bank | PDF       | v0.12 — alpha  |
-| Zenith     | PDF       | v0.12 — alpha  |
-| OPay       | PDF, XLSX | v0.12 — alpha  |
+| PalmPay    | PDF       | v0.13 — alpha  |
+| First Bank | PDF       | v0.13 — alpha  |
+| Zenith     | PDF       | v0.13 — alpha  |
+| OPay       | PDF, XLSX | v0.13 — alpha  |
 
 ## Install
 
@@ -137,7 +137,10 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | `RedactResult`        | dataclass     | `data: bytes`, `bank`, `format`, `format_version`, `report` |
 | `RedactReport`        | dataclass     | `bank`, `pages`, `redactions`, `audit`              |
 | `Format`              | type alias    | `Literal["pdf", "xlsx"]`                            |
-| `ParseError`          | exception     | layout mismatch / undetectable source               |
+| `ParseError`          | exception     | base — undiagnosable parse failure                  |
+| `EncryptedSourceError`| exception     | source PDF / XLSX is password-protected             |
+| `EmptyStatementError` | exception     | parser ran clean, zero rows; `.marker_coverage` field |
+| `LayoutDriftError`    | exception     | anchor missing / column shifted post-detect         |
 | `ReconciliationError` | exception     | invariant break                                     |
 | `__version__`         | str           | package version                                     |
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bankstract"
-version = "0.12.0"
+version = "0.13.0"
 description = "Convert Nigerian bank PDF statements into structured CSV."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -60,6 +60,8 @@ addopts = "-ra"
 [dependency-groups]
 dev = [
     "build>=1.0",
+    "msoffcrypto-tool>=6.0.0",
+    "pikepdf>=10.9.1",
     "pre-commit>=4.6.0",
     "pyright>=1.1.410",
     "pytest>=8.0",

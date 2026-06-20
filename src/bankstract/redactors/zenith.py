@@ -26,7 +26,7 @@ from typing import Any
 from .._pymupdf import rect as _rect
 from ..parsers.zenith import COL_DESC
 from . import register
-from ._shared import DEFAULT_SWEEPS, apply_regex_sweeps, page_rows, redact_word
+from ._shared import DEFAULT_SWEEPS, apply_regex_sweeps, page_rows, redact_rect, redact_word
 from .base import Redactor
 
 HEADER_LABELS: dict[str, str] = {
@@ -56,23 +56,15 @@ class ZenithRedactor(Redactor):
                 target = _rect(hit.x1 + 2, hit.y0, 240.0, hit.y1 + 2)
                 if "No." in label:
                     target = _rect(hit.x1 + 2, hit.y0, page_rect.x1 - 20, hit.y1 + 2)
-                page.add_redact_annot(target, fill=(1, 1, 1))
-                pending_text.append((target, replacement))
+                redact_rect(page, target, replacement, pending_text)
                 audit.append(f"header[{label}] -> {replacement!r}")
 
         # Address block sits in the left column directly under ACCOUNT NAME
         # (three visual rows). Blank the left half of those three rows.
         for hit in page.search_for("ACCOUNT NAME:"):
             for i in range(1, 4):
-                addr_line = _rect(
-                    40.0,
-                    hit.y1 + (i - 1) * 10,
-                    240.0,
-                    hit.y1 + i * 10 + 2,
-                )
-                page.add_redact_annot(addr_line, fill=(1, 1, 1))
-                if i == 1:
-                    pending_text.append((addr_line, "Test Address"))
+                addr_line = _rect(40.0, hit.y1 + (i - 1) * 10, 240.0, hit.y1 + i * 10 + 2)
+                redact_rect(page, addr_line, "Test Address" if i == 1 else "", pending_text)
                 audit.append(f"header[Address-line-{i}] -> (blank)")
 
     def redact_body(

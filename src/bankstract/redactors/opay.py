@@ -29,7 +29,14 @@ from .._source import Source, rewind
 from .._xlsx import sniff_format
 from ..schema import RedactReport, RedactResult
 from . import register
-from ._shared import DEFAULT_SWEEPS, apply_regex_sweeps, page_rows, redact_word, shape_preserve
+from ._shared import (
+    DEFAULT_SWEEPS,
+    apply_regex_sweeps,
+    page_rows,
+    redact_rect,
+    redact_word,
+    shape_preserve,
+)
 from .base import Redactor
 
 # Column ranges are deliberately WIDER than the parser's COL_* — the parser
@@ -152,16 +159,14 @@ class OPayRedactor(Redactor):
                 (acct_rect, "0000000000", "Account Number"),
                 (addr_rect, "Test Address", "Address"),
             ):
-                page.add_redact_annot(r, fill=(1, 1, 1))
-                pending_text.append((r, text))
+                redact_rect(page, r, text, pending_text)
                 audit.append(f"header[{label}] -> {text!r}")
 
         # "Generated on DD Mon YYYY HH:MM:SS" reveals print time; replace
         # with a fixed placeholder so two runs produce identical fixtures.
         for hit in page.search_for("Generated on"):
             line = _rect(hit.x1 + 2, hit.y0, page.rect.x1 - 20, hit.y1 + 2)
-            page.add_redact_annot(line, fill=(1, 1, 1))
-            pending_text.append((line, "01 Jan 2026 00:00:00"))
+            redact_rect(page, line, "01 Jan 2026 00:00:00", pending_text)
             audit.append("header[Generated on] -> placeholder")
 
     def redact_body(

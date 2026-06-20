@@ -10,6 +10,7 @@ header byte check.
 
 from __future__ import annotations
 
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -18,10 +19,22 @@ from openpyxl import load_workbook  # type: ignore[import-untyped]
 from openpyxl.utils.exceptions import InvalidFileException  # type: ignore[import-untyped]
 
 from ._source import Source, rewind
-from .schema import Format
+from .schema import EncryptedSourceError, Format
 
 _PDF_MAGIC = b"%PDF"
 _ZIP_MAGIC = b"PK"
+# CDFV2 (Compound File Binary Format) container — the wrapper MS Office uses
+# for encrypted OOXML files. A real encrypted XLSX is a CDFV2 envelope, not
+# a ZIP, so openpyxl's zipfile reader raises BadZipFile on it. Sniffing the
+# magic up front lets us surface EncryptedSourceError instead.
+_CDFV2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def is_cdfv2(source: Source) -> bool:
+    """True if `source` opens with the CDFV2 container magic. A non-encrypted
+    XLSX never starts with this — it's plain ZIP. Encrypted OOXML, .doc, .xls
+    and other legacy Office formats do."""
+    return _peek(source, 8).startswith(_CDFV2_MAGIC)
 
 
 def sniff_format(source: Source) -> Format:
@@ -29,17 +42,20 @@ def sniff_format(source: Source) -> Format:
     present); magic bytes fallback for streams or extension-less paths.
     The ZIP magic-byte match is shared by XLSX / DOCX / PPTX / EPUB /
     JAR — we return 'xlsx' optimistically and let openpyxl raise on a
-    real format mismatch downstream (reviewer's Option 1)."""
+    real format mismatch downstream. CDFV2 (the MS-OFFCRYPTO envelope)
+    also returns 'xlsx' — the file IS an XLSX, just encrypted;
+    `open_workbook` re-sniffs and raises `EncryptedSourceError` so the
+    user sees actionable copy instead of 'unknown format'."""
     if isinstance(source, Path):
         suffix = source.suffix.lower()
         if suffix == ".pdf":
             return "pdf"
         if suffix == ".xlsx":
             return "xlsx"
-    head = _peek(source, 4)
+    head = _peek(source, 8)
     if head.startswith(_PDF_MAGIC):
         return "pdf"
-    if head.startswith(_ZIP_MAGIC):
+    if head.startswith(_ZIP_MAGIC) or head.startswith(_CDFV2_MAGIC):
         return "xlsx"
     raise ValueError(f"unknown source format (head={head!r})")
 
@@ -63,13 +79,17 @@ def _peek(source: Source, n: int) -> bytes:
 @contextmanager
 def open_workbook(source: Source) -> Any:
     """Open an XLSX file read-only + data-only (formulas pre-evaluated).
-    Raises ValueError if the source isn't actually XLSX — caller wraps as
-    ParseError so the CLI / lib API gets a clean failure message."""
+    Raises `EncryptedSourceError` when the file is a password-protected
+    OOXML wrapped in a CDFV2 envelope. Raises `ValueError` (wrapped to
+    `ParseError` by the lib API layer) for genuine non-XLSX inputs."""
     rewind(source)
     handle: Any = source if hasattr(source, "read") else str(source)
     try:
         wb = load_workbook(handle, read_only=True, data_only=True)
-    except (InvalidFileException, KeyError) as exc:
+    except (InvalidFileException, KeyError, zipfile.BadZipFile) as exc:
+        rewind(source)
+        if is_cdfv2(source):
+            raise EncryptedSourceError("password-protected XLSX") from exc
         raise ValueError(f"not a valid XLSX: {exc}") from exc
     try:
         yield wb

@@ -53,6 +53,17 @@ _FIXTURES = [
 
 CLAUDE.md directive 3 is load-bearing. No real personal names, business names, addresses, phone digits, BVN, or account numbers may appear inline in source, tests, or committed fixtures. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`). Raw statements live only in gitignored `_local/`.
 
+## Choosing the right ParseError subclass
+
+When your parser raises, use the most specific class. Lazy `raise ParseError(...)` defeats the typed-error contract — downstream Cloud / CLI consumers map `error_class` to actionable user copy ("password-protected, save unprotected version" vs "format drifted, file an issue"), and they can't do that if every cause collapses to the base class.
+
+1. **`LayoutDriftError`** — raise when `detect()` matched but row extraction broke (expected anchor missing, columns shifted, sheet missing). Include `format_version` so callers know which version of the format your parser was written for. THIS WILL BE YOUR MOST COMMON RAISE during new-parser dev.
+2. **`EmptyStatementError`** — raise when parse completes successfully but `transactions == []`. Include `marker_coverage` (compute via the same fraction `detect_confidence` returns) so callers can distinguish "legitimately empty" (high coverage) from "silent layout drift" (low coverage).
+3. **`EncryptedSourceError`** — raised only in boundary modules `_pdfplumber.py` / `_xlsx.py`. Don't raise from parser code; the boundary owns it.
+4. **`ParseError`** (base) — LAST RESORT. Only when none of the above fit AND the cause is genuinely undiagnosable. Required: precede the raise with a `# type-unknown: <reason>` comment. The AST audit test in `tests/test_typed_errors.py` fails the PR otherwise.
+
+If you keep reaching for `# type-unknown:` for a structurally similar cause across multiple parsers, open an issue proposing a fourth subclass — three or more `# type-unknown:` raises with the same root cause is the bar for shipping a new typed class.
+
 ## Adding a canonical output writer
 
 `bankstract.parse_to` is the single source of truth for parse + serialize. Any new canonical output format (NOT app-specific — see below) ships through it:

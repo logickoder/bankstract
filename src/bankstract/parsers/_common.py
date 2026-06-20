@@ -30,6 +30,17 @@ def first_page_text(source: Source) -> str:
         return ""
 
 
+def marker_fraction(text: str, markers: tuple[str, ...]) -> float:
+    """Fraction of `markers` substrings present in `text`. Shared by every
+    parser's `detect_confidence` and by `EmptyStatementError.marker_coverage`
+    computation at raise sites — the two must stay in lockstep so Cloud /
+    CLI can compare the coverage on a failed parse to the confidence used
+    for detection."""
+    if not markers:
+        return 0.0
+    return sum(1 for m in markers if m in text) / len(markers)
+
+
 def all_pages_text(source: Source) -> str:
     """Concatenated text from every page — used by metadata extractors that
     need to look past page 1 (e.g. closing balance on the last page)."""

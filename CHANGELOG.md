@@ -2,6 +2,28 @@
 
 Notable changes per release. Pre-1.0 — breaking changes land freely, called out in the relevant entry.
 
+## 0.13.0 — 2026-06-20
+
+### Added
+
+- **Typed `ParseError` subclasses** so downstream consumers can distinguish failure modes without string-matching on `str(exc)`:
+  - **`EncryptedSourceError`** — source PDF or XLSX is password-protected. Raised only in boundary modules `_pdfplumber.py` / `_xlsx.py`.
+  - **`EmptyStatementError`** — parser ran clean, bank was detected, zero transactions extracted. Carries `marker_coverage: float` (detect_confidence at raise time) so the caller can distinguish a legitimately empty statement (high coverage) from silent layout drift that skipped every row (low coverage).
+  - **`LayoutDriftError`** — bank detected but row extraction broke at a structural anchor (expected column header missing, sheet name missing, header totals unparseable). Carries `format_version` so the caller can surface "we saw version X, parser expects different structure".
+- **`is_cdfv2(source)`** helper in `_xlsx.py` — used by `open_workbook` to distinguish encrypted-OOXML envelopes from non-XLSX inputs.
+
+### Breaking (alpha)
+
+- `ParseError` semantics tightened: now reserved for genuinely undiagnosable parse failures. Specific failures raise the typed subclass. Callers using `except ParseError:` keep matching all four via Python inheritance — but if you switch on `type(exc)`, expect the new classes in your match.
+- Audit gate in test suite: any bare `raise ParseError(...)` inside `parsers/` or boundary modules must be preceded by a `# type-unknown:` comment justifying why no subclass fits. The AST audit test fails the PR otherwise.
+
+### Internal
+
+- Boundary modules (`_pdfplumber.py`, `_xlsx.py`) raise `EncryptedSourceError` for encrypted sources. `_pdfplumber` catches `PdfminerException` and inspects `args[0]` for `PDFPasswordIncorrect`; `_xlsx` catches `BadZipFile` + `InvalidFileException` + `KeyError` and sniffs CDFV2 magic.
+- `sniff_format` now maps CDFV2 magic to `"xlsx"` so the dispatch reaches `open_workbook`, which then raises the typed encryption error.
+- Each parser's prior catchall `raise ParseError(...)` call sites audited and reclassified into `EmptyStatementError` / `LayoutDriftError` per the actual cause.
+- Test fixtures `tests/fixtures/encrypted_sample.{pdf,xlsx}` shipped (password `test123`); regen tool at `scripts/regen-encrypted-fixtures.py`.
+
 ## 0.12.0 — 2026-06-19
 
 ### Added

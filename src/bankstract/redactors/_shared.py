@@ -45,16 +45,34 @@ def shape_preserve(text: str) -> str:
     return "".join(out)
 
 
+def redact_rect(
+    page: Any,
+    rect: Any,
+    replacement: str,
+    pending_text: list[tuple[Any, str]],
+) -> None:
+    """Shared two-step redaction: cover the bbox with a white annot, queue
+    the replacement text. Empty replacement = blanked redaction only (no
+    text overlay). Per-bank redactors call this with their own bbox math
+    when the redaction target isn't a single Word (multi-word labels,
+    header lines, wrapped addresses)."""
+    page.add_redact_annot(rect, fill=(1, 1, 1))
+    if replacement:
+        pending_text.append((rect, replacement))
+
+
 def redact_word(
     page: Any,
     word: Word,
     replacement: str,
     pending_text: list[tuple[Any, str]],
 ) -> None:
-    r = _rect(word.x0, word.top, word.x1, word.bottom)
-    page.add_redact_annot(r, fill=(1, 1, 1))
-    if replacement:
-        pending_text.append((r, replacement))
+    redact_rect(
+        page,
+        _rect(word.x0, word.top, word.x1, word.bottom),
+        replacement,
+        pending_text,
+    )
 
 
 def page_rows(page: Any, row_tol: float = 4.0) -> list[list[Word]]:
@@ -110,7 +128,5 @@ def redact_range(
         max(w.x1 for w in covering),
         max(w.bottom for w in covering),
     )
-    page.add_redact_annot(r, fill=(1, 1, 1))
-    if replacement:
-        pending_text.append((r, replacement))
+    redact_rect(page, r, replacement, pending_text)
     covered.update(covering_idx)

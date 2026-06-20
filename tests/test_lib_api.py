@@ -25,7 +25,10 @@ _ALL_PDF_FIXTURES = [
 def test_public_surface_exports() -> None:
     # Exact set: any addition or removal here is a semver-relevant change.
     assert set(bankstract.__all__) == {
+        "EmptyStatementError",
+        "EncryptedSourceError",
         "Format",
+        "LayoutDriftError",
         "Parser",
         "ParseError",
         "ParseResult",

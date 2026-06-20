@@ -79,9 +79,51 @@ class RedactResult:
 
 
 class ParseError(Exception):
+    """Catchall for parse failures. Reserved for genuinely undiagnosable
+    causes — every parser-side raise should prefer one of the typed
+    subclasses below. A bare ParseError raise inside `parsers/` or
+    `_pdfplumber.py` / `_xlsx.py` must be preceded by a `# type-unknown:`
+    comment justifying why no subclass fits; an AST audit test in the suite
+    fails the PR otherwise."""
+
     def __init__(self, message: str, *, format_version: str | None = None) -> None:
         super().__init__(message)
         self.format_version = format_version
+
+
+class EncryptedSourceError(ParseError):
+    """Source PDF or XLSX is password-protected. The file is a valid format —
+    we just can't read it. Cloud / CLI maps to a 'save unprotected version'
+    user message rather than 'file an issue'. Raised only in boundary
+    modules (`_pdfplumber.py`, `_xlsx.py`), never inside parsers."""
+
+
+class EmptyStatementError(ParseError):
+    """Parser ran clean, bank was detected, zero transactions were extracted.
+    Either the statement legitimately has no rows in the period OR the layout
+    drifted in a way that silently skipped every row. `marker_coverage`
+    carries the parser's `detect_confidence` at raise time so the caller can
+    distinguish: high coverage + 0 rows ≈ legitimately empty; lower coverage
+    + 0 rows ≈ silent drift."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        format_version: str | None = None,
+        marker_coverage: float = 0.0,
+    ) -> None:
+        super().__init__(message, format_version=format_version)
+        self.marker_coverage = marker_coverage
+
+
+class LayoutDriftError(ParseError):
+    """Bank was detected (detect_confidence > 0) but row extraction broke —
+    expected text anchors missing, column positions shifted, header rows in
+    an unexpected order. Almost always means the bank revised the PDF/XLSX
+    format. `format_version` carries the version the parser was written for
+    so Cloud / CLI can surface 'we saw version X, parser expects different
+    structure'."""
 
 
 class ReconciliationError(Exception):
