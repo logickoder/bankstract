@@ -5,7 +5,7 @@ Public API (semver-stable): everything re-exported below. Anything
 imported from a submodule prefixed with `_` is internal.
 """
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 from ._api import detect, list_parsers, list_redactors, parse, parse_to, redact
 from .parsers.base import Parser

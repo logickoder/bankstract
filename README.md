@@ -15,10 +15,10 @@ bankstract list                                # bank (formats)
 
 | Bank       | Formats   | Status        |
 | ---------- | --------- | ------------- |
-| PalmPay    | PDF       | v0.13 — alpha  |
-| First Bank | PDF       | v0.13 — alpha  |
-| Zenith     | PDF       | v0.13 — alpha  |
-| OPay       | PDF, XLSX | v0.13 — alpha  |
+| PalmPay    | PDF       | v0.14 — alpha  |
+| First Bank | PDF       | v0.14 — alpha  |
+| Zenith     | PDF       | v0.14 — alpha  |
+| OPay       | PDF, XLSX | v0.14 — alpha  |
 
 ## Install
 
