@@ -1,0 +1,65 @@
+name: Bug (non-parser)
+description: CLI, lib API, build, install, or other non-parser issue
+title: "[bug] <component>: <short description>"
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - CLI
+        - Python lib API
+        - Build / install (uv, pip, hatchling)
+        - Tests / CI
+        - Type checking (pyright)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: engine_version
+    attributes:
+      label: Engine version
+      placeholder: "0.13.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      placeholder: "3.11.7"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS + version
+      placeholder: macOS 14.5, Ubuntu 24.04, Windows 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact command or code
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      render: shell

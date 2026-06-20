@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/logickoder/bankstract#readme
+    about: Quickstart + Public API + Contributing guide
+  - name: bankstract-cloud
+    url: https://bankstract.logickoder.dev
+    about: Hosted API + drag-drop demo. Self-host bundle available.

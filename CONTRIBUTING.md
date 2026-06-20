@@ -53,6 +53,28 @@ _FIXTURES = [
 
 CLAUDE.md directive 3 is load-bearing. No real personal names, business names, addresses, phone digits, BVN, or account numbers may appear inline in source, tests, or committed fixtures. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`). Raw statements live only in gitignored `_local/`.
 
+## Reporting issues
+
+Use the issue templates:
+
+- **Parser drift** (existing bank stopped working) → `[drift] <bank>: ...`
+- **New bank request** → `[parser] <bank>: ...`
+- **Bug** (CLI, lib API, install, build) → `[bug] <component>: ...`
+
+Blank issues are disabled. Pick the template that fits.
+
+### Redaction before attachment
+
+Never paste a raw bank statement into an issue. Always redact first:
+
+```bash
+bankstract redact <bank> raw.pdf redacted.pdf
+```
+
+The redactor strips account holder, account number, address, and counterparty narrations. The output is safe to attach publicly. Issues with un-redacted PDFs will be deleted without response.
+
+If your bank isn't yet supported by the redactor (i.e. you're requesting a new parser), redact manually before attaching: blank out names, account numbers, addresses, and any counterparty info. Use placeholder text (`Test User`, `0000000000`, `Test Address`).
+
 ## Choosing the right ParseError subclass
 
 When your parser raises, use the most specific class. Lazy `raise ParseError(...)` defeats the typed-error contract — downstream Cloud / CLI consumers map `error_class` to actionable user copy ("password-protected, save unprotected version" vs "format drifted, file an issue"), and they can't do that if every cause collapses to the base class.

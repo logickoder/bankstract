@@ -24,6 +24,12 @@ Notable changes per release. Pre-1.0 — breaking changes land freely, called ou
 - Each parser's prior catchall `raise ParseError(...)` call sites audited and reclassified into `EmptyStatementError` / `LayoutDriftError` per the actual cause.
 - Test fixtures `tests/fixtures/encrypted_sample.{pdf,xlsx}` shipped (password `test123`); regen tool at `scripts/regen-encrypted-fixtures.py`.
 
+### Repo
+
+- GitHub issue templates: `parser-drift.yml`, `parser-request.yml`, `bug.yml`. Blank issues disabled (`config.yml`). Contact links surface docs + Cloud demo before users open issues.
+- Pull request template (`.github/PULL_REQUEST_TEMPLATE.md`) carries the gate checklist (ruff, pyright, pytest, CHANGELOG, AST audit, redaction guarantee, conventional commit).
+- CONTRIBUTING.md "Reporting issues" section links the templates + reinforces the redact-before-attach workflow.
+
 ## 0.12.0 — 2026-06-19
 
 ### Added

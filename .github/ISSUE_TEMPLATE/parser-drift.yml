@@ -1,0 +1,141 @@
+name: Parser drift (existing bank)
+description: A supported bank's parser is broken or producing wrong output
+title: "[drift] <bank>: <short description>"
+labels: ["bug", "parser-drift"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Redact your statement BEFORE attaching
+
+        bankstract ships a redactor. Use it. Never paste a raw bank PDF
+        into an issue.
+
+        ```bash
+        bankstract redact <bank> raw.pdf redacted.pdf
+        ```
+
+        The redactor strips account holder name, account number, address,
+        and counterparty narrations. The redacted file is safe to attach
+        publicly.
+
+        Issues with un-redacted PDFs will be deleted without response.
+
+  - type: dropdown
+    id: bank
+    attributes:
+      label: Bank
+      description: Which parser is affected
+      options:
+        - palmpay
+        - fbn
+        - opay
+        - zenith
+        - other (describe in steps to reproduce)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: Source format
+      options:
+        - PDF
+        - XLSX
+    validations:
+      required: true
+
+  - type: dropdown
+    id: error_class
+    attributes:
+      label: Error class
+      description: What the engine raised. Surfaced in error messages and Cloud responses.
+      options:
+        - EncryptedSourceError
+        - EmptyStatementError
+        - LayoutDriftError
+        - ReconciliationError
+        - ParseError (catchall — only if none of the above fit)
+        - No error raised, but output is wrong
+    validations:
+      required: true
+
+  - type: input
+    id: format_version
+    attributes:
+      label: format_version reported by the engine
+      description: Surfaced in the error message (e.g. opay-pdf-2026-01). Leave blank if none.
+      placeholder: opay-pdf-2026-01
+    validations:
+      required: false
+
+  - type: input
+    id: marker_coverage
+    attributes:
+      label: marker_coverage (EmptyStatementError only)
+      description: Surfaced when EmptyStatementError is raised. Float 0..1.
+      placeholder: "0.75"
+    validations:
+      required: false
+
+  - type: input
+    id: engine_version
+    attributes:
+      label: Engine version
+      description: Output of `bankstract --version` or `bankstract.__version__`
+      placeholder: "0.13.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How did you hit this?
+      options:
+        - CLI
+        - Python lib API
+        - bankstract-cloud (hosted)
+        - bankstract-cloud (self-hosted)
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact command or code that triggers the error
+      placeholder: |
+        $ bankstract opay redacted.pdf -o out.csv
+        parse error (opay-pdf-2026-01): expected 'Trans. Date' header missing
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      description: What you expected. What happened instead.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Redaction confirmation
+      options:
+        - label: I ran `bankstract redact <bank> raw.pdf redacted.pdf` before attaching
+          required: true
+        - label: I verified no real names, account numbers, or counterparty info remain
+          required: true
+
+  - type: textarea
+    id: attachment
+    attributes:
+      label: Redacted sample (drag-and-drop or paste)
+      description: |
+        Attach the REDACTED PDF or XLSX here. The redactor produces a file
+        safe to share publicly. If you can't reproduce with a redacted sample,
+        say so in the steps above.
+    validations:
+      required: false
