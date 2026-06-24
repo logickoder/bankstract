@@ -31,8 +31,6 @@ Notable changes per release. Pre-1.0. Breaking changes land freely. Called out i
 - Empty-statement raise patterns deduped. New `raise_empty_pdf(format_version)` and `raise_no_transactions(*, format_version, text, markers)` helpers in `parsers/_common.py` own the canonical `EmptyStatementError` messages + `marker_coverage` computation. 4 parsers (fbn, palmpay, zenith, opay PDF) collapse their inline raises into helper calls. Net: 4 copies of each message string -> 1. opay XLSX keeps its inline raise (different message + marker_coverage=1.0).
 - `tests/test_typed_errors.py` adds coverage for the auto-detect path raising the typed exception.
 
-Commit: `4eb63ba`.
-
 ## 0.13.0 - 2026-06-20
 
 ### Added
