@@ -16,10 +16,10 @@ body:
         ```
 
         The redactor strips account holder name, account number, address,
-        and counterparty narrations. The redacted file is safe to attach
+        counterparty narrations. The redacted file is safe to attach
         publicly.
 
-        Issues with un-redacted PDFs will be deleted without response.
+        Issues with un-redacted PDFs get deleted without response.
 
   - type: dropdown
     id: bank
@@ -55,7 +55,7 @@ body:
         - EmptyStatementError
         - LayoutDriftError
         - ReconciliationError
-        - ParseError (catchall — only if none of the above fit)
+        - ParseError (catchall. Only if none of the above fit.)
         - No error raised, but output is wrong
     validations:
       required: true
@@ -83,7 +83,7 @@ body:
     attributes:
       label: Engine version
       description: Output of `bankstract --version` or `bankstract.__version__`
-      placeholder: "0.13.0"
+      placeholder: "0.15.0"
     validations:
       required: true
 

@@ -22,7 +22,7 @@ body:
     id: engine_version
     attributes:
       label: Engine version
-      placeholder: "0.13.0"
+      placeholder: "0.15.0"
     validations:
       required: true
 

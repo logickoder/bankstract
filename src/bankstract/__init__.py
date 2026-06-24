@@ -5,9 +5,10 @@ Public API (semver-stable): everything re-exported below. Anything
 imported from a submodule prefixed with `_` is internal.
 """
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 from ._api import detect, list_parsers, list_redactors, parse, parse_to, redact
+from ._progress import ProgressCallback, ProgressEvent, throttle
 from .parsers.base import Parser
 from .redactors.base import Redactor
 from .schema import (
@@ -34,6 +35,8 @@ __all__ = [
     "Parser",
     "ParseError",
     "ParseResult",
+    "ProgressCallback",
+    "ProgressEvent",
     "ReconciliationError",
     "RedactReport",
     "RedactResult",
@@ -47,6 +50,7 @@ __all__ = [
     "parse",
     "parse_to",
     "redact",
+    "throttle",
     "write_csv",
     "write_json",
 ]

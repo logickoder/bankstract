@@ -14,6 +14,7 @@ from collections.abc import Callable
 from decimal import Decimal
 
 from .._layout import Word, classify, group_by_baseline
+from .._progress import emit
 from ..schema import Transaction
 from ._money import parse_amount
 
@@ -102,7 +103,8 @@ def walk_rows(
         pending_cols = None
         pending_tail = []
 
-    for page_words in words_per_page:
+    total = len(words_per_page)
+    for i, page_words in enumerate(words_per_page, 1):
         for row in group_by_baseline(page_words, row_tol):
             if is_chrome(row):
                 flush()
@@ -113,5 +115,6 @@ def walk_rows(
                 pending_cols = cols
             elif pending_cols is not None and continuation_col in cols:
                 pending_tail.extend(w.text for w in cols[continuation_col])
+        emit("walk_page", i, total)
     flush()
     return transactions

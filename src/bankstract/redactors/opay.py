@@ -24,6 +24,7 @@ from typing import Any
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 
 from .._layout import classify
+from .._progress import emit
 from .._pymupdf import rect as _rect
 from .._source import Source, rewind
 from .._xlsx import sniff_format
@@ -101,12 +102,14 @@ def _redact_xlsx(source: Source) -> RedactResult:
     wb = load_workbook(handle)
     report = RedactReport(bank="opay")
     try:
+        total = len(wb.sheetnames)
         for sheet_name in wb.sheetnames:
             audit: list[str] = []
             n = _xlsx_redact_sheet(wb[sheet_name], audit)
             report.pages += 1
             report.redactions += n
             report.audit.append((report.pages, audit))
+            emit("redact_page", report.pages, total)
         buf = BytesIO()
         wb.save(buf)
         data = buf.getvalue()

@@ -25,6 +25,7 @@ from .._source import Source
 from ..schema import LayoutDriftError, ParseResult, StatementMetadata, Transaction
 from . import register
 from ._common import (
+    emit,
     extract_words_per_page,
     first_page_text,
     marker_fraction,
@@ -207,7 +208,8 @@ class PalmPayParser(Parser):
             pending = None
             pending_tail = []
 
-        for page_words in words_per_page:
+        total_pages = len(words_per_page)
+        for i, page_words in enumerate(words_per_page, 1):
             for row in group_by_baseline(page_words, ROW_TOL):
                 classes = [classify(w.text) for w in row]
                 kind = _row_kind(classes)
@@ -218,6 +220,7 @@ class PalmPayParser(Parser):
                         pending = parsed
                 elif kind == "continuation" and pending is not None:
                     pending_tail.extend(_continuation_tokens(row))
+            emit("walk_page", i, total_pages)
         flush()
 
         if not transactions:

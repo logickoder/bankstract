@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Literal, TypeVar
 
+from ._progress import ProgressCallback, emit, progress_scope
 from ._source import Source, rewind
 from .parsers import all_parsers, get
 from .parsers.base import Parser
@@ -111,34 +112,49 @@ def _dispatch(
         target = registry_lookup(name)
     else:
         target = registry_lookup(bank)
+    emit("detect", 1, 1)
     rewind(src)
+    emit("open", 1, 1)
     try:
-        return worker(target, src)
+        result = worker(target, src)
     except ValueError as exc:
         raise ParseError(str(exc)) from exc
+    emit("done", 1, 1)
+    return result
 
 
-def parse(source: SourceLike, *, bank: str | None = None) -> ParseResult:
+def parse(
+    source: SourceLike,
+    *,
+    bank: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> ParseResult:
     """Parse `source` into a ParseResult.
 
     `bank=None` auto-detects via `detect_confidence` (picks max-scoring
     parser). Pass an explicit bank name to skip detection. `source` may be
     a `pathlib.Path`, a string path, or a seekable binary stream
     (e.g. `io.BytesIO`). An unrecognised format (neither PDF nor XLSX)
-    surfaces as a `ParseError`, not a bare `ValueError`."""
+    surfaces as a `ParseError`, not a bare `ValueError`.
+
+    `progress_callback` receives `ProgressEvent(stage, current, total)` at
+    each lifecycle point (`detect`, `open`, `extract_page` × N,
+    `walk_page` × N, `done`). Wrap with `bankstract.throttle` for a CLI
+    bar; pass the raw callback for full-fidelity telemetry."""
 
     def _parse_call(parser: Parser | Redactor, src: Source) -> ParseResult:
         assert isinstance(parser, Parser)  # _dispatch contract: registry returns Parser
         return parser.parse(src)
 
-    return _dispatch(
-        source,
-        bank=bank,
-        registry_lookup=get,
-        candidate_banks=all_parsers().keys(),
-        worker=_parse_call,
-        none_match_msg="no registered parser detected this source",
-    )
+    with progress_scope(progress_callback):
+        return _dispatch(
+            source,
+            bank=bank,
+            registry_lookup=get,
+            candidate_banks=all_parsers().keys(),
+            worker=_parse_call,
+            none_match_msg="no registered parser detected this source",
+        )
 
 
 def parse_to(
@@ -147,6 +163,7 @@ def parse_to(
     format: Literal["csv", "json"] = "csv",
     bank: str | None = None,
     reconcile: bool = True,
+    progress_callback: ProgressCallback | None = None,
 ) -> bytes:
     """Parse `source` and serialize the result to bytes in one call.
 
@@ -168,35 +185,48 @@ def parse_to(
     if format not in ("csv", "json"):
         raise ValueError(f"unsupported output format: {format!r} (expected 'csv' or 'json')")
 
-    result = parse(source, bank=bank)
+    with progress_scope(progress_callback):
+        # Inner parse() sees the scope already set and its own
+        # progress_callback=None is a no-op (doesn't clobber). parse_to's
+        # `done` fires after serialize so callers see one terminal event
+        # per top-level call, not one per nested phase.
+        result = parse(source, bank=bank)
 
-    if reconcile:
-        # Run every check the parser supplied evidence for. verify_totals is
-        # sum-based (needs header totals); _reconcile_rows is row-wise (needs a
-        # balance column). Banks like FBN ship both — totals catch dropped
-        # rows, row-wise catches per-row arithmetic that happens to sum out.
-        if result.total_credit is not None and result.total_debit is not None:
-            verify_totals(
-                result.transactions,
-                total_credit=result.total_credit,
-                total_debit=result.total_debit,
-            )
-        if result.row_wise_reconcilable:
-            _reconcile_rows(result.transactions)
+        if reconcile:
+            # Run every check the parser supplied evidence for. verify_totals is
+            # sum-based (needs header totals); _reconcile_rows is row-wise (needs a
+            # balance column). Banks like FBN ship both — totals catch dropped
+            # rows, row-wise catches per-row arithmetic that happens to sum out.
+            if result.total_credit is not None and result.total_debit is not None:
+                verify_totals(
+                    result.transactions,
+                    total_credit=result.total_credit,
+                    total_debit=result.total_debit,
+                )
+            if result.row_wise_reconcilable:
+                _reconcile_rows(result.transactions)
+            emit("reconcile", 1, 1)
 
-    buf = io.StringIO()
-    if format == "csv":
-        write_csv(result.transactions, buf)
-    else:
-        write_json(result, buf)
-    # csv.writer emits "\r\n" per RFC 4180; StringIO doesn't translate.
-    # Defensive replace catches any wrapped-stream path that might double-
-    # translate (Windows text mode through a layered writer). Idempotent on
-    # clean input — already-correct bytes pass through untouched.
-    return buf.getvalue().encode("utf-8").replace(b"\r\r\n", b"\r\n")
+        buf = io.StringIO()
+        if format == "csv":
+            write_csv(result.transactions, buf)
+        else:
+            write_json(result, buf)
+        # csv.writer emits "\r\n" per RFC 4180; StringIO doesn't translate.
+        # Defensive replace catches any wrapped-stream path that might double-
+        # translate (Windows text mode through a layered writer). Idempotent on
+        # clean input — already-correct bytes pass through untouched.
+        out = buf.getvalue().encode("utf-8").replace(b"\r\r\n", b"\r\n")
+        emit("done", 1, 1)
+        return out
 
 
-def redact(source: SourceLike, *, bank: str | None = None) -> RedactResult:
+def redact(
+    source: SourceLike,
+    *,
+    bank: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> RedactResult:
     """Redact `source` into a `RedactResult` carrying bytes + metadata.
 
     `bank=None` auto-detects via `detect_confidence` on every registered
@@ -205,17 +235,20 @@ def redact(source: SourceLike, *, bank: str | None = None) -> RedactResult:
     seekable binary stream (e.g. `io.BytesIO`). Output is always in-memory
     bytes — the redactor never writes to disk on this path, so streaming
     callers (HTTP responses, archives, Cloud workers) get the payload
-    without tempfile cleanup. Unrecognised format → `ParseError`."""
+    without tempfile cleanup. Unrecognised format → `ParseError`.
+
+    `progress_callback` receives `redact_page` × N + `done`."""
 
     def _redact_call(redactor: Parser | Redactor, src: Source) -> RedactResult:
         assert isinstance(redactor, Redactor)
         return redactor.redact(src)
 
-    return _dispatch(
-        source,
-        bank=bank,
-        registry_lookup=get_redactor,
-        candidate_banks=all_redactors().keys(),
-        worker=_redact_call,
-        none_match_msg="no registered redactor detected this source",
-    )
+    with progress_scope(progress_callback):
+        return _dispatch(
+            source,
+            bank=bank,
+            registry_lookup=get_redactor,
+            candidate_banks=all_redactors().keys(),
+            worker=_redact_call,
+            none_match_msg="no registered redactor detected this source",
+        )

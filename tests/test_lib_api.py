@@ -32,6 +32,8 @@ def test_public_surface_exports() -> None:
         "Parser",
         "ParseError",
         "ParseResult",
+        "ProgressCallback",
+        "ProgressEvent",
         "ReconciliationError",
         "RedactReport",
         "RedactResult",
@@ -45,6 +47,7 @@ def test_public_surface_exports() -> None:
         "parse",
         "parse_to",
         "redact",
+        "throttle",
         "write_csv",
         "write_json",
     }
@@ -53,9 +56,9 @@ def test_public_surface_exports() -> None:
 def test_parse_signature_unchanged() -> None:
     # Snapshot the public `parse` signature. Drift here is a semver event —
     # bump the expected string deliberately, never silently.
-    assert (
-        str(inspect.signature(bankstract.parse))
-        == "(source: 'SourceLike', *, bank: 'str | None' = None) -> 'ParseResult'"
+    assert str(inspect.signature(bankstract.parse)) == (
+        "(source: 'SourceLike', *, bank: 'str | None' = None, "
+        "progress_callback: 'ProgressCallback | None' = None) -> 'ParseResult'"
     )
 
 

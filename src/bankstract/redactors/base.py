@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from .._progress import emit
 from .._pymupdf import PDF_REDACT_IMAGE_NONE, open_doc
 from .._source import Source
 from ..schema import Format, RedactReport, RedactResult
@@ -45,7 +46,8 @@ class Redactor(ABC):
         report = RedactReport(bank=self.bank)
         doc = open_doc(source)
         try:
-            for i in range(1, doc.page_count + 1):
+            total = doc.page_count
+            for i in range(1, total + 1):
                 page = doc[i - 1]
                 pending_text: list[tuple[Any, str]] = []
                 page_audit: list[str] = []
@@ -66,6 +68,7 @@ class Redactor(ABC):
                 report.pages += 1
                 report.redactions += len(page_audit)
                 report.audit.append((i, page_audit))
+                emit("redact_page", i, total)
 
             data: bytes = doc.write(garbage=4, deflate=True, clean=True)
         finally:

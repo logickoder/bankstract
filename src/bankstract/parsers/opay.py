@@ -44,6 +44,7 @@ from ..schema import (
 )
 from . import register
 from ._common import (
+    emit,
     extract_words_per_page,
     first_page_text,
     marker_fraction,
@@ -342,6 +343,9 @@ def _parse_xlsx(source: Source) -> ParseResult:
                 reference=str(row[7]).strip() if row[7] is not None else None,
             )
         )
+    # XLSX is single-sheet from the consumer's point of view; one walk_page
+    # milestone so the bar lights up identically to PDF dispatch.
+    emit("walk_page", 1, 1)
 
     if not transactions:
         # Wallet sheet existed + shape passed — coverage is full by detect's
@@ -377,10 +381,12 @@ def _parse_pdf(source: Source) -> ParseResult:
         raise_empty_pdf(FORMAT_VERSION_PDF)
 
     transactions: list[Transaction] = []
+    total_pages = len(words_per_page)
     for page_idx, page_words in enumerate(words_per_page):
         rows = group_by_baseline(page_words, ROW_TOL)
         page_txs, hit_section_end = _process_page(rows, skip_header_chrome=(page_idx == 0))
         transactions.extend(page_txs)
+        emit("walk_page", page_idx + 1, total_pages)
         if hit_section_end:
             break
 

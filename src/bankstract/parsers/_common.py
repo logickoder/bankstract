@@ -6,14 +6,33 @@ from typing import Any, NoReturn
 
 from .._layout import Word, from_pdfplumber_words
 from .._pdfplumber import open_doc
+from .._progress import emit
 from .._source import Source, rewind
 from ..schema import EmptyStatementError, EncryptedSourceError
+
+# Re-export so parsers `from ._common import emit` rather than reaching into
+# the `_progress` private module — keeps the parser import surface flat.
+__all__ = [
+    "all_pages_text",
+    "emit",
+    "extract_words_per_page",
+    "first_page_text",
+    "marker_fraction",
+    "raise_empty_pdf",
+    "raise_no_transactions",
+]
 
 
 def extract_words_per_page(source: Source) -> list[list[Word]]:
     rewind(source)
     with open_doc(source) as pdf:
-        return [from_pdfplumber_words(page.extract_words()) for page in pdf.pages]
+        pages = pdf.pages
+        total = len(pages)
+        out: list[list[Word]] = []
+        for i, page in enumerate(pages, 1):
+            out.append(from_pdfplumber_words(page.extract_words()))
+            emit("extract_page", i, total)
+        return out
 
 
 def first_page_text(source: Source) -> str:

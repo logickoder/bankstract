@@ -1,4 +1,4 @@
-# bankstract — Claude Operating Charter
+# bankstract - Claude Operating Charter
 
 You are working inside `bankstract`, a public Python library that converts Nigerian bank PDF statements into structured CSV via a per-bank parser plugin system.
 
@@ -9,35 +9,35 @@ Owner: Jeffery Orazulike (github.com/logickoder).
 ## CORE DIRECTIVES
 
 ### 1. ZERO HALLUCINATION ON PARSER LOGIC
-Never invent regex patterns, table coordinates, or column orders for a bank format you haven't read. Open the fixture PDF. Run `pdfplumber` interactively. Confirm the structure. Then write the parser. Guessed parsers silently drop or misclassify rows — financial data has no margin for that.
+Never invent regex patterns, table coordinates, or column orders for a bank format you haven't read. Open the fixture PDF. Run `pdfplumber` interactively. Confirm the structure. Then write the parser. Guessed parsers silently drop or misclassify rows. Financial data has no margin for that.
 
 ### 2. RECONCILIATION INVARIANT IS LOAD-BEARING
-Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance`. If a parser change breaks reconciliation on any fixture, the parser is wrong — not the invariant. Never weaken `reconcile.py` to make tests pass.
+Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance`. If a parser change breaks reconciliation on any fixture, the parser is wrong, not the invariant. Never weaken `reconcile.py` to make tests pass.
 
 ### 3. FIXTURE PRIVACY IS NON-NEGOTIABLE
 Sample PDFs in `tests/fixtures/` contain real account data. Before any fixture lands in git:
-- Account number → `XXXXXXXXXX`
-- Name → `Test User`
-- Address → `Test Address`
-- Phone / email → scrubbed
-- BVN → never present
+- Account number -> `XXXXXXXXXX`
+- Name -> `Test User`
+- Address -> `Test Address`
+- Phone / email -> scrubbed
+- BVN -> never present
 
 If an unredacted PDF is staged, halt and warn. Run `uv run bankstract redact <bank> <raw> <out>` to scrub it, or regenerate the fixture from a synthetic source.
 
-The same rule extends to **all source and test code**: no real personal names, business names, addresses, phone digits, or account numbers may appear inline — not in test fixtures, not in assertion strings, not in synthetic-PDF generators. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`, etc.). Real values live only in `tests/<bank>/fixtures/_local/` (gitignored).
+The same rule extends to **all source and test code**. No real personal names, business names, addresses, phone digits, or account numbers appear inline. Not in test fixtures, not in assertion strings, not in synthetic-PDF generators. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`, etc.). Real values live only in `tests/<bank>/fixtures/_local/` (gitignored).
 
 ### 4. HUMAN IN THE LOOP
 Do not run `git commit`, `git push`, `git tag`, or any publish operation without explicit owner command in the current turn. Edit, save, halt. Owner reviews diffs manually.
 
 ### 5. SURGICAL EDITS
-Modify the specific function, parser, or test under request. Don't touch unrelated files, rewrite working parsers to "improve" them, or refactor across modules without an explicit refactor task. Each bank parser is independently owned — touching one to "fix" another is forbidden.
+Modify the specific function, parser, or test under request. Don't touch unrelated files, rewrite working parsers to "improve" them, or refactor across modules without an explicit refactor task. Each bank parser is independently owned. Touching one to "fix" another is forbidden.
 
 ### 6. NO BOILERPLATE COMMENTS
 No `# Parse the PDF` above `parse_pdf()`. No docstrings on obvious methods. Comments only where non-obvious algorithmic choices, format quirks, or regex constraints need explanation. A comment earns its place when removing it would confuse a future reader:
 
 ```python
 # PalmPay statements use \r\n between transaction blocks but \n within
-# narration lines. Splitting on \n alone merges ad
+# narration lines. Splitting on \n alone merges adjacent blocks.
 blocks = raw.split("\r\n\r\n")
 ```
 
@@ -45,7 +45,7 @@ blocks = raw.split("\r\n\r\n")
 Direct, technical, honest. No "I've gone ahead and...", no "Let me know if...". Report the change, the file, the test status.
 
 ### 8. PYRIGHT STRICT IS GREEN OR BUST
-All code under `src/` and `tests/` must pass `uv run pyright` with the strict-mode config in `pyproject.toml` (`[tool.pyright] typeCheckingMode = "strict"`). Zero errors, zero warnings. Untyped third-party libraries (pymupdf, pdfplumber, openpyxl) are wrapped at the boundary in `_pymupdf.py` / `_pdfplumber.py` / `_xlsx.py` — downstream code stays fully typed. If you must touch an untyped library directly, annotate the bridging call with `cast(Any, ...)` or a local `# type: ignore[...]` comment, never a project-wide rule relax.
+All code under `src/` and `tests/` must pass `uv run pyright` with the strict-mode config in `pyproject.toml` (`[tool.pyright] typeCheckingMode = "strict"`). Zero errors, zero warnings. Untyped third-party libraries (pymupdf, pdfplumber, openpyxl) get wrapped at the boundary in `_pymupdf.py` / `_pdfplumber.py` / `_xlsx.py`. Downstream code stays fully typed. If you must touch an untyped library directly, annotate the bridging call with `cast(Any, ...)` or a local `# type: ignore[...]` comment. Never a project-wide rule relax.
 
 ---
 
@@ -61,9 +61,9 @@ bankstract/
 ├── LICENSE                    MIT
 ├── uv.lock                    locked deps
 ├── src/
-│   └── bankstract/            package (src-layout; hatchling editable mode
+│   └── bankstract/            package (src-layout. hatchling editable mode
 │       ├── __init__.py        rejects prefix rewrites, so use a real subdir)
-│       ├── cli.py             click entrypoint w/ --format csv|json + `-` stdin/stdout
+│       ├── cli.py             click entrypoint with --format csv|json + `-` stdin/stdout
 │       ├── schema.py          pydantic Transaction + StatementMetadata + ParseResult + errors
 │       ├── reconcile.py       row-wise + totals-based invariant checks
 │       ├── _api.py            lib API: parse() / detect() / list_parsers()
@@ -74,17 +74,17 @@ bankstract/
 │       ├── _xlsx.py           typed facade over openpyxl + sniff_format(source)
 │       ├── writers/
 │       │   ├── csv.py         write_csv(transactions, target: Path | TextIO)
-│       │   └── json.py        write_json(result, target) — full ParseResult shape
+│       │   └── json.py        write_json(result, target). Full ParseResult shape.
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
 │       │   ├── base.py        Parser ABC + supported_formats: tuple[Format, ...]
 │       │   ├── _common.py     first_page_text + extract_words_per_page
 │       │   ├── _columnar.py   column_of / row_columns / walk_rows (shared by fbn + zenith)
 │       │   ├── _money.py      parse_amount / parse_amount_optional / mask_account_number
-│       │   ├── palmpay.py     PDF — totals-based reconcile
-│       │   ├── fbn.py         PDF — row-wise + totals reconcile
-│       │   ├── zenith.py      PDF — row-wise reconcile
-│       │   └── opay.py        PDF + XLSX — dispatch via sniff_format
+│       │   ├── palmpay.py     PDF. Totals-based reconcile.
+│       │   ├── fbn.py         PDF. Row-wise + totals reconcile.
+│       │   ├── zenith.py      PDF. Row-wise reconcile.
+│       │   └── opay.py        PDF + XLSX. Dispatch via sniff_format.
 │       └── redactors/
 │           ├── __init__.py    registry (import side-effect)
 │           ├── base.py        Redactor ABC + RedactReport + supported_formats
@@ -99,22 +99,22 @@ bankstract/
 │       ├── test_parser.py
 │       ├── test_redactor.py
 │       └── fixtures/
-│           ├── sample.pdf     redacted PDF — committed
-│           └── _local/        gitignored: drop raw PDFs here for dev
+│           ├── sample.pdf     redacted PDF. Committed.
+│           └── _local/        gitignored. Drop raw PDFs here for dev.
 └── .github/workflows/ci.yml
 ```
 
 ## STACK + CONVENTIONS
 
 - Python 3.11+ (use `match`, `Self`, `Unpack` where applicable)
-- All public functions and class attributes are type-hinted; pyright strict passes clean
+- All public functions and class attributes are type-hinted. Pyright strict passes clean.
 - Money is `decimal.Decimal`, never `float`
-- Dates are `datetime.datetime` (full timestamp), never `str` past the parser boundary; banks without a time component pad with `00:00:00`
-- Currency stripped at parse time; the symbol is never re-emitted in stored data
-- `pdfplumber` primary; `camelot-py` lattice fallback; `pytesseract` OCR last
-- `pymupdf` only at the redactor / facade boundary; never reach for it from parser code
-- `click` for CLI; no `argparse`
-- `pydantic` v2 for the `Transaction` record; `dataclass` for `ParseResult` / `RedactReport`
+- Dates are `datetime.datetime` (full timestamp), never `str` past the parser boundary. Banks without a time component pad with `00:00:00`.
+- Currency stripped at parse time. The symbol is never re-emitted in stored data.
+- `pdfplumber` primary. `camelot-py` lattice fallback. `pytesseract` OCR last.
+- `pymupdf` only at the redactor / facade boundary. Never reach for it from parser code.
+- `click` for CLI. No `argparse`.
+- `pydantic` v2 for the `Transaction` record. `dataclass` for `ParseResult` / `RedactReport`.
 
 ## COMMANDS
 
@@ -131,7 +131,7 @@ uv run pre-commit install
 uv add <pkg>
 uv add --dev <pkg>
 
-# lint + types (MUST pass clean — see directive 8)
+# lint + types (MUST pass clean. See directive 8.)
 uv run ruff check src tests
 uv run ruff format src tests
 uv run pyright src tests
@@ -164,7 +164,7 @@ Every parser implements `Parser` ABC from `parsers/base.py`:
 
 ```python
 class Parser(ABC):
-    bank: str  # registry key — lowercase, no spaces
+    bank: str  # registry key. Lowercase, no spaces.
     supported_formats: tuple[Format, ...] = ("pdf",)  # add "xlsx" when supported
 
     @abstractmethod
@@ -174,17 +174,18 @@ class Parser(ABC):
     def parse(self, source: Source) -> ParseResult: ...
 
     def detect_confidence(self, source: Source) -> float:
-        return 1.0 if self.detect(source) else 0.0  # override w/ marker fraction
+        return 1.0 if self.detect(source) else 0.0  # override with marker fraction
 ```
 
 `Source = Path | IO[bytes]`. `ParseResult` carries the transaction list plus optional `total_credit` / `total_debit` read from the statement header + `StatementMetadata` + `format_version` + `row_wise_reconcilable` opt-out. Parsers whose statements omit a per-row balance column MUST populate the totals so the CLI can fall back to `verify_totals()` instead of silently skipping reconciliation. Multi-format parsers (e.g. OPay) dispatch internally on `sniff_format(source)` and emit per-format `format_version` constants (`opay-pdf-2026-01` vs `opay-xlsx-2026-01`) so drift detection works per format independently.
 
 Rules:
-- `detect()` is cheap — read first page (PDF) or sheet names (XLSX), match header string or column signature. No full parse.
+- `detect()` is cheap. Read first page (PDF) or sheet names (XLSX), match header string or column signature. No full parse.
 - `parse()` raises `ParseError` (carrying `format_version`) on layout mismatch. No silent return of `[]`.
-- Unparseable mid-document blocks must go to a `.log` sidecar. Never silently dropped. Add a shared helper in `writers/` when the first parser needs one — no speculative helper today.
+- Unparseable mid-document blocks land in a `.log` sidecar. Never silently dropped. Add a shared helper in `writers/` when the first parser needs one. No speculative helper today.
 - Each parser self-registers in `parsers/__init__.py` via import side-effect. No central registry edit needed.
-- Share, don't duplicate: amount/account helpers live in `parsers/_money.py` (`parse_amount`, `parse_amount_optional`, `mask_account_number`); columnar walkers in `_columnar.py`; pdfplumber/openpyxl boundaries in `_common.py` / `_xlsx.py`.
+- Share, don't duplicate. Amount/account helpers live in `parsers/_money.py` (`parse_amount`, `parse_amount_optional`, `mask_account_number`). Columnar walkers in `_columnar.py`. pdfplumber/openpyxl boundaries in `_common.py` / `_xlsx.py`.
+- Progress: parsers fire `emit("walk_page", i, n_pages)` once per page in the outer parse loop. Import `emit` from `parsers/_common` (re-exported), never from `bankstract._progress` directly. Walkers in `_columnar.walk_rows` already emit `walk_page`. Parsers that delegate to it get progress free. `extract_page` fires inside `extract_words_per_page`. Never re-emit from a parser.
 
 ## TESTING
 
@@ -192,31 +193,37 @@ Rules:
 - Reconciliation invariant tested for every fixture in `test_reconcile.py` (row-wise + totals-based)
 - Format-version detection tested against multiple versions when more than one is available
 - Each parser has a sibling `tests/<bank>/test_redactor.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)
-- No mocking of `pdfplumber` / `camelot` / `pytesseract` / `openpyxl` — tests run against real fixture PDFs/XLSX
-- Every parser/metadata test parametrizes over both `tests/<bank>/fixtures/sample.pdf` (committed, redacted) AND `tests/<bank>/fixtures/_local/statement.pdf` (gitignored, raw) when present. Skip the local case via `pytest.mark.skipif(not _local.exists())` so CI stays green without raw fixtures. The raw fixture catches metadata-regex regressions that placeholder values silently pass
+- No mocking of `pdfplumber` / `camelot` / `pytesseract` / `openpyxl`. Tests run against real fixture PDFs/XLSX.
+- Every parser/metadata test parametrizes over both `tests/<bank>/fixtures/sample.pdf` (committed, redacted) AND `tests/<bank>/fixtures/_local/statement.pdf` (gitignored, raw) when present. Skip the local case via `pytest.mark.skipif(not _local.exists())` so CI stays green without raw fixtures. The raw fixture catches metadata-regex regressions that placeholder values silently pass.
 
-## OUT OF SCOPE — DO NOT ADD
+## OUT OF SCOPE - DO NOT ADD
 
-- Category inference (rule-based or ML) — downstream concern
-- GUI / web UI — CLI only
-- Direct integration with BudgetBakers, YNAB, Notion — downstream concern
-- Pushing to remote APIs — bankstract reads PDFs, never posts elsewhere
-- Statement download automation (logging into bank portals) — separate tool
+- Category inference (rule-based or ML). Downstream concern.
+- GUI / web UI. CLI only.
+- Direct integration with BudgetBakers, YNAB, Notion. Downstream concern.
+- Pushing to remote APIs. bankstract reads PDFs, never posts elsewhere.
+- Statement download automation (logging into bank portals). Separate tool.
 - Encrypted-PDF password prompting beyond a single `--password` CLI flag
 
 If asked to add any of the above, push back. They aren't part of bankstract.
 
-## VOICE (README, docstrings, issue templates)
+## VOICE (README, docstrings, comments, issue templates, commits, errors)
 
-- No emojis in body copy
-- No marketing language ("seamless", "powerful", "robust", "blazingly fast")
-- No AI / blockchain / Web3 framing
-- Declarative sentences. State what it does, then how.
-- Owner's brand identifier is `logickoder` — always link to `github.com/logickoder` in public-facing copy
+Owner spec lives in memory at `voice-public-copy`. Highlights:
+
+- Period-separated short hits. Multiple 3-7 word sentences beat one long sentence.
+- **No em-dashes anywhere.** Universal rule. Use periods, commas, parens, colons. Two sentences beats one with an aside.
+- No marketing language. Banned: seamless, powerful, robust, blazingly fast, intelligent, smart, AI-powered, agentic, supercharged, innovative, revolutionary, game-changer, effortless, world-class, industry-leading, leverage (verb), synergy.
+- No apology theater. Banned: "We're sorry", "Oops", "Uh oh", "Don't worry", "Don't panic".
+- No emojis in body copy.
+- Lowercase bank names: palmpay, fbn, opay, zenith.
+- `logickoder` always lowercase. Link to github.com/logickoder in public copy.
+- Active voice. No hedging (might, perhaps, we think, potentially). Concrete numbers + names + facts when available.
+- Errors follow `<what>. <why>. <do this>.` Three short sentences.
 
 ## ASSISTANT RESPONSE FORMAT
 
-- State change → terse confirmation with file + function name
-- Diagnosis → root cause in one to two sentences, then the fix
-- Refusal → cite the directive being upheld (e.g. "fixture not read. Read tests/fixtures/fbn/sample.pdf first")
-- Never apologize. Acknowledge errors technically and move on
+- State change: terse confirmation with file + function name
+- Diagnosis: root cause in one to two sentences, then the fix
+- Refusal: cite the directive being upheld (e.g. "fixture not read. Read tests/fixtures/fbn/sample.pdf first")
+- Never apologize. Acknowledge errors technically and move on.

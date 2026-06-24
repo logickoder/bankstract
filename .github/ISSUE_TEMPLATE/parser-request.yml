@@ -11,12 +11,11 @@ body:
         We can't write a parser without seeing the format. Read
         `CONTRIBUTING.md` for the full workflow. Short version:
 
-        1. Run `bankstract redact <existing-bank-with-similar-format> raw.pdf
-           redacted.pdf` — OR redact manually if no equivalent parser exists.
+        1. Run `bankstract redact <existing-bank-with-similar-format> raw.pdf redacted.pdf`. Or redact manually if no equivalent parser exists.
         2. Verify no PII remains.
         3. Attach the redacted sample below.
 
-        Owner will scope it against the roadmap (currently GTB PDF next,
+        Owner scopes it against the roadmap (currently GTB PDF next,
         then XLSX batch for Kuda / Stanbic / Sparkle / ALAT).
 
   - type: input
