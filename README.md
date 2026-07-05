@@ -186,6 +186,16 @@ Two checks. The CLI picks whichever applies per bank.
 
 Both modes exist to catch silently-dropped rows. That's the failure mode of naive PDF parsers.
 
+## Sponsoring a bank parser
+
+Need a bank that isn't supported yet? Sponsor the implementation.
+
+One-time fee. The parser ships to the MIT engine publicly. You get priority turnaround and a heads-up before format-breaking changes land.
+
+**Banks frequently requested:** GTB, Access, UBA, Stanbic, Wema, Polaris, Sterling, Keystone.
+
+[Open a sponsorship request](https://buy.polar.sh/polar_cl_QcZsf4BqRIPqQZvUW04VQdZ9rP7slrNbroDgG4A799w) or email [jeffery@logickoder.dev](mailto:jeffery@logickoder.dev) with the bank name and a sample statement (redacted).
+
 ## Contributing a bank parser
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full checklist: gate setup, shared helpers (`parsers/_money.py`, `parsers/_columnar.py`, `_xlsx.py`), `supported_formats` declaration, XLSX redactor dispatch, dual-fixture testing rule, fixture privacy, Conventional Commits release gate.
