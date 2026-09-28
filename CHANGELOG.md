@@ -2,6 +2,20 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## 0.17.0 - 2026-09-28
+
+### Added
+
+- **`serialize(result, format) -> bytes`.** The canonical bytes `convert` and the CLI emit. Callers holding a `ParseResult` get one path for CSV and JSON. `convert` is now `parse` + `reconcile_result` + `serialize`.
+- **`OutputFormat`** (`Literal["csv", "json"]`), next to `Format` in `schema.py`. Replaces the CLI's private copy.
+- **`ParseResult.bank`**: the matched parser, passed or detected. `parse()` now always fills `metadata.bank` (the one stored copy) and `bank` reads it. No second `detect()` to learn it. **`ParseError.bank`** names the parser a failure came from.
+- **`ReconciledParseResult`**, returned by `reconcile_result`. `.report` is never `None`, so a signature can demand checked numbers.
+- **`ReconciliationReport.row_wise_reason`**: the parser's reason when row-wise is `disabled`. In JSON output.
+
+### Changed
+
+- **Breaking.** `ParseResult.row_wise_reconcilable: bool` replaced by `row_wise_disabled: str | None`. The string is the reason. opay sets it.
+
 ## 0.16.1 - 2026-09-28
 
 ### Fixed
