@@ -7,6 +7,8 @@ from pathlib import Path
 import bankstract
 from bankstract._progress import emit, progress_scope
 
+from ._fixtures import parsed
+
 PALMPAY_SAMPLE = Path(__file__).parent / "palmpay" / "fixtures" / "sample.pdf"
 OPAY_XLSX_SAMPLE = Path(__file__).parent / "opay" / "fixtures" / "sample.xlsx"
 
@@ -35,14 +37,18 @@ def test_extract_page_monotonic_and_terminal() -> None:
 def test_convert_fires_reconcile_and_done_once() -> None:
     events, cb = _collect()
     bankstract.convert(PALMPAY_SAMPLE, format="csv", bank="palmpay", progress_callback=cb)
-    reconcile_events = [ev for ev in events if ev.stage == "reconcile"]
-    done_events = [ev for ev in events if ev.stage == "done"]
-    assert len(reconcile_events) == 1
-    # convert wraps parse(); both fire `done`, but contextvar nesting means
-    # the consumer sees BOTH: inner parse `done` + outer convert `done`.
-    # That's acceptable — terminal-event idempotency is the consumer's job
-    # (the bar already handles repeated `current == total`).
-    assert len(done_events) >= 1
+    stages = [ev.stage for ev in events]
+    assert stages.count("reconcile") == 1
+    # Nested parse() and reconcile_result() get no callback, so only
+    # convert's scope fires `done`: once, last.
+    assert stages.count("done") == 1
+    assert stages[-1] == "done"
+
+
+def test_reconcile_result_fires_reconcile_after_parse() -> None:
+    events, cb = _collect()
+    bankstract.reconcile_result(parsed("palmpay", PALMPAY_SAMPLE), progress_callback=cb)
+    assert [ev.stage for ev in events] == ["reconcile", "done"]
 
 
 def test_none_callback_zero_events() -> None:
@@ -58,7 +64,11 @@ def test_none_callback_zero_events() -> None:
         # Nested None-scope must NOT clobber outer.
         with progress_scope(None):
             emit("nested", 1, 1)
-    assert seen == [bankstract.ProgressEvent("nested", 1, 1)]
+    # The inner None scope fires no `done`. Only the outer one does, on exit.
+    assert seen == [
+        bankstract.ProgressEvent("nested", 1, 1),
+        bankstract.ProgressEvent("done", 1, 1),
+    ]
 
 
 def test_throttle_dedups_same_stage() -> None:

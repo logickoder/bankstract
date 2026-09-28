@@ -118,7 +118,6 @@ def _dispatch(
         result = worker(target, src)
     except ValueError as exc:
         raise ParseError(str(exc)) from exc
-    emit("done", 1, 1)
     return result
 
 
@@ -185,10 +184,8 @@ def convert(
         raise ValueError(f"unsupported output format: {format!r} (expected 'csv' or 'json')")
 
     with progress_scope(progress_callback):
-        # Inner parse() sees the scope already set and its own
-        # progress_callback=None is a no-op (doesn't clobber). convert's
-        # `done` fires after serialize so callers see one terminal event
-        # per top-level call, not one per nested phase.
+        # Inner parse() gets no callback, so it neither clobbers this scope
+        # nor fires its own `done`. The one `done` fires after serialize.
         result = parse(source, bank=bank)
 
         if reconcile:
@@ -203,9 +200,7 @@ def convert(
         # Defensive replace catches any wrapped-stream path that might double-
         # translate (Windows text mode through a layered writer). Idempotent on
         # clean input — already-correct bytes pass through untouched.
-        out = buf.getvalue().encode("utf-8").replace(b"\r\r\n", b"\r\n")
-        emit("done", 1, 1)
-        return out
+        return buf.getvalue().encode("utf-8").replace(b"\r\r\n", b"\r\n")
 
 
 def redact(

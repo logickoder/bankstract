@@ -58,7 +58,7 @@ result.transactions[0].has_time       # False when the statement prints date onl
 result.format_version
 
 # parse() never reconciles. reconcile_result() returns a checked copy.
-result = bankstract.reconcile_result(result)
+result = bankstract.reconcile_result(result)   # progress_callback= to see the reconcile stage
 result.reconciliation.totals          # 'passed' | 'not_available'
 result.reconciliation.row_wise        # 'passed' | 'not_available' | 'disabled'
 
@@ -112,7 +112,7 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | --------------------- | ------------- | --------------------------------------------------- |
 | `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
 | `convert`             | function      | `convert(source, *, format="csv", bank=None, reconcile=True, progress_callback=None) -> bytes`. Byte-identical to CLI. |
-| `reconcile_result`    | function      | `reconcile_result(result) -> ParseResult`. Returns a copy with `.reconciliation` set. Raises `ReconciliationError` on a break or when no check can run. |
+| `reconcile_result`    | function      | `reconcile_result(result, *, progress_callback=None) -> ParseResult`. Returns a copy with `.reconciliation` set. Raises `ReconciliationError` on a break or when no check can run. |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
 | `list_parsers`        | function      | sorted bank names (parsers)                         |
 | `write_csv`           | function      | `write_csv(transactions, target: Path \| TextIO) -> int` |

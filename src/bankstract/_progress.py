@@ -1,7 +1,7 @@
 """
 Progress hooks. Engine fires lifecycle events through `emit()`; consumers
 opt into them via the `progress_callback` kwarg on `parse / convert /
-redact`. Callback delivery is contextvar-scoped so concurrent calls don't
+redact / reconcile_result`. Callback delivery is contextvar-scoped so concurrent calls don't
 cross-contaminate and parsers stay free of the kwarg.
 
 Stage strings (`ProgressEvent.stage`) are intentionally `str`, not Enum or
@@ -11,9 +11,9 @@ Literal. Adding new stages later is non-breaking. Documented stages today:
     open         : fires once from `_api` post-open (current=1, total=1)
     extract_page : fires N times from `_common.extract_words_per_page`
     walk_page    : fires N times from each parser's outer page loop
-    reconcile    : fires once from `_api.reconcile_result` after the checks pass
+    reconcile    : fires once from `reconcile.reconcile_result` after the checks pass
     redact_page  : fires N times from `redactors/base.Redactor.redact`
-    done         : fires once before the function returns successfully
+    done         : fires once from `progress_scope` when the outermost call returns
 
 Engine `emit()` does no deduplication. Consumers that want a throttled UI
 stream (CLI bar, browser SSE) wrap their callback in `throttle()` before
@@ -56,19 +56,20 @@ def emit(stage: str, current: int, total: int) -> None:
 
 @contextmanager
 def progress_scope(callback: ProgressCallback | None) -> Generator[None]:
-    """Install `callback` for the duration of the `with` block. Resets on
-    exit (success or exception) so contextvar state never leaks between
-    `_api` calls or threads.
+    """Install `callback` for the duration of the `with` block and fire
+    `done` when the block exits cleanly. Resets on exit (success or
+    exception) so contextvar state never leaks between calls or threads.
 
-    `callback=None` is a no-op (does NOT clobber an outer scope's callback).
-    This lets `convert()` set the scope once and call `parse()` without
-    suppressing events on the inner call."""
+    `callback=None` is a no-op: no install, no `done`, outer scope untouched.
+    So only the outermost call that was handed a callback fires `done`, once,
+    however deeply `convert` / `parse` / `reconcile_result` nest."""
     if callback is None:
         yield
         return
     token: Token[ProgressCallback | None] = _callback.set(callback)
     try:
         yield
+        emit("done", 1, 1)
     finally:
         _callback.reset(token)
 

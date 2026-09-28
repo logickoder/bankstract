@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from dataclasses import replace
 from decimal import Decimal
 
-from ._progress import emit
+from ._progress import ProgressCallback, emit, progress_scope
 from .schema import (
     CheckStatus,
     ParseResult,
@@ -78,7 +78,11 @@ def verify_totals(
         )
 
 
-def reconcile_result(result: ParseResult) -> ParseResult:
+def reconcile_result(
+    result: ParseResult,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> ParseResult:
     """Run every reconciliation check `result` carries evidence for and return
     a copy with `.reconciliation` set. The input is left untouched.
 
@@ -87,28 +91,33 @@ def reconcile_result(result: ParseResult) -> ParseResult:
     both: totals catch dropped rows, row-wise catches per-row arithmetic that
     happens to sum out. A failed check raises `ReconciliationError`. So does a
     result with no evidence for either check, since that would otherwise pass
-    unverified."""
-    totals: CheckStatus = "not_available"
-    if result.total_credit is not None and result.total_debit is not None:
-        verify_totals(
-            result.transactions,
-            total_credit=result.total_credit,
-            total_debit=result.total_debit,
-        )
-        totals = "passed"
+    unverified.
 
-    row_wise: CheckStatus
-    if not result.row_wise_reconcilable:
-        row_wise = "disabled"
-    elif reconcile(result.transactions):
-        row_wise = "passed"
-    else:
-        row_wise = "not_available"
+    `progress_callback` receives `reconcile` then `done`. Pass it after a
+    separate `parse()` call, whose scope has closed."""
+    with progress_scope(progress_callback):
+        totals: CheckStatus = "not_available"
+        if result.total_credit is not None and result.total_debit is not None:
+            verify_totals(
+                result.transactions,
+                total_credit=result.total_credit,
+                total_debit=result.total_debit,
+            )
+            totals = "passed"
 
-    if totals != "passed" and row_wise != "passed":
-        raise ReconciliationError(
-            "no reconciliation evidence. Statement has neither header totals "
-            "nor a checkable balance column. Report the statement layout."
-        )
-    emit("reconcile", 1, 1)
-    return replace(result, reconciliation=ReconciliationReport(totals=totals, row_wise=row_wise))
+        row_wise: CheckStatus
+        if not result.row_wise_reconcilable:
+            row_wise = "disabled"
+        elif reconcile(result.transactions):
+            row_wise = "passed"
+        else:
+            row_wise = "not_available"
+
+        if totals != "passed" and row_wise != "passed":
+            raise ReconciliationError(
+                "no reconciliation evidence. Statement has neither header totals "
+                "nor a checkable balance column. Report the statement layout."
+            )
+        emit("reconcile", 1, 1)
+        report = ReconciliationReport(totals=totals, row_wise=row_wise)
+        return replace(result, reconciliation=report)
