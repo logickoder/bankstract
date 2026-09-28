@@ -24,6 +24,11 @@ class Transaction(BaseModel):
     balance: Decimal | None = None
     reference: str | None = None
     currency: str = "NGN"
+    # True only when the statement printed a time for this row. False means
+    # `date` carries a padded 00:00:00, so consumers must not treat the time
+    # as real (transfer-pair matching, dedup). Default False so a parser that
+    # forgets to set it never overstates precision.
+    has_time: bool = False
 
 
 @dataclass(frozen=True)

@@ -32,7 +32,7 @@ def test_file_to_stdout_csv() -> None:
     result = runner.invoke(main, ["palmpay", str(PALMPAY_SAMPLE), "-o", "-"])
     assert result.exit_code == 0, result.output
     # CSV header is the schema FIELDNAMES join.
-    assert "date,narration,debit,credit,balance,reference,currency" in result.output
+    assert "date,narration,debit,credit,balance,reference,currency,has_time" in result.output
 
 
 def test_file_to_file_json(tmp_path: Path) -> None:

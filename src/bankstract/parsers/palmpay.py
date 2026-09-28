@@ -127,8 +127,10 @@ def _build_transaction(
     # Falls back to date-only when the row lacks time tokens.
     try:
         parsed_dt = datetime.strptime(datetime_str, "%m/%d/%Y %I:%M:%S %p")
+        has_time = True
     except ValueError:
         parsed_dt = datetime.strptime(datetime_str.split()[0], "%m/%d/%Y")
+        has_time = False
     amount = parse_amount(amount_token)
     debit = -amount if amount < 0 else Decimal("0")
     credit = amount if amount > 0 else Decimal("0")
@@ -140,6 +142,7 @@ def _build_transaction(
         credit=credit,
         balance=None,
         reference=txid,
+        has_time=has_time,
     )
 
 

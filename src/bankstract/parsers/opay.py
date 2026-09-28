@@ -209,6 +209,7 @@ def _process_page(
                 credit=_amount_from_col(row, COL_CREDIT),
                 balance=parse_amount(balance_word.text),
                 reference=_longest_ref(ref_words),
+                has_time=True,
             )
         )
     return (out, hit_section_end)
@@ -341,6 +342,7 @@ def _parse_xlsx(source: Source) -> ParseResult:
                 credit=parse_amount(row[4]),
                 balance=parse_amount(row[5]),
                 reference=str(row[7]).strip() if row[7] is not None else None,
+                has_time=True,
             )
         )
     # XLSX is single-sheet from the consumer's point of view; one walk_page

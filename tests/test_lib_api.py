@@ -67,7 +67,15 @@ def test_convert_csv_returns_bytes() -> None:
     assert isinstance(data, bytes)
     assert len(data) > 0
     # Canonical CSV header is fixed; first line never drifts.
-    assert data.startswith(b"date,narration,debit,credit,balance,reference,currency")
+    assert data.startswith(b"date,narration,debit,credit,balance,reference,currency,has_time\r\n")
+
+
+def test_convert_csv_has_time_column() -> None:
+    # fbn prints date only. Every row must say so instead of passing the
+    # padded 00:00:00 off as a real time.
+    rows = bankstract.convert(FBN_SAMPLE, format="csv").decode().splitlines()[1:]
+    assert rows
+    assert all(row.endswith(",false") for row in rows)
 
 
 def test_convert_json_returns_bytes() -> None:
@@ -183,7 +191,7 @@ def test_convert_empty_result_csv_has_header_only() -> None:
     api.parse = lambda *_a, **_k: empty  # type: ignore[assignment]
     try:
         data = bankstract.convert(PALMPAY_SAMPLE, format="csv")
-        assert data == b"date,narration,debit,credit,balance,reference,currency\r\n"
+        assert data == b"date,narration,debit,credit,balance,reference,currency,has_time\r\n"
     finally:
         api.parse = orig
 

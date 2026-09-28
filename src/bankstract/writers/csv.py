@@ -5,7 +5,17 @@ from typing import TextIO, TypedDict
 
 from ..schema import Transaction
 
-FIELDNAMES = ["date", "narration", "debit", "credit", "balance", "reference", "currency"]
+# Append new columns at the end so positional consumers keep the first seven.
+FIELDNAMES = [
+    "date",
+    "narration",
+    "debit",
+    "credit",
+    "balance",
+    "reference",
+    "currency",
+    "has_time",
+]
 
 
 class _Row(TypedDict):
@@ -16,6 +26,7 @@ class _Row(TypedDict):
     balance: str
     reference: str
     currency: str
+    has_time: str
 
 
 def _row(tx: Transaction) -> _Row:
@@ -27,6 +38,7 @@ def _row(tx: Transaction) -> _Row:
         "balance": "" if tx.balance is None else str(tx.balance),
         "reference": tx.reference or "",
         "currency": tx.currency,
+        "has_time": "true" if tx.has_time else "false",
     }
 
 
