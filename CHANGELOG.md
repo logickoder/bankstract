@@ -2,6 +2,13 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## 0.16.1 - 2026-09-28
+
+### Fixed
+
+- `reconcile_result` accepts `progress_callback` and fires `reconcile` then `done`. After `parse()` its scope is closed, so the `reconcile` event never reached callers on the parse + reconcile path.
+- `done` fires once per top-level call, from `progress_scope`. `convert` used to fire it twice (inner `parse`, then its own).
+
 ## 0.16.0 - 2026-09-27
 
 ### Added
