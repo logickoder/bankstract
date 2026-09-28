@@ -5,13 +5,14 @@ on a statement without balances, so a caller that ignores the return value
 verifies nothing."""
 
 from collections.abc import Iterable
-from dataclasses import replace
 from decimal import Decimal
+from typing import Any
 
 from ._progress import ProgressCallback, emit, progress_scope
 from .schema import (
     CheckStatus,
     ParseResult,
+    ReconciledParseResult,
     ReconciliationError,
     ReconciliationReport,
     Transaction,
@@ -82,7 +83,7 @@ def reconcile_result(
     result: ParseResult,
     *,
     progress_callback: ProgressCallback | None = None,
-) -> ParseResult:
+) -> ReconciledParseResult:
     """Run every reconciliation check `result` carries evidence for and return
     a copy with `.reconciliation` set. The input is left untouched.
 
@@ -120,4 +121,5 @@ def reconcile_result(
             )
         emit("reconcile", 1, 1)
         report = ReconciliationReport(totals=totals, row_wise=row_wise)
-        return replace(result, reconciliation=report)
+        values: dict[str, Any] = {**vars(result), "reconciliation": report}
+        return ReconciledParseResult(**values)

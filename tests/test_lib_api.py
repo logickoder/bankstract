@@ -34,6 +34,7 @@ def test_public_surface_exports() -> None:
         "Parser",
         "ParseError",
         "ParseResult",
+        "ReconciledParseResult",
         "ProgressCallback",
         "ProgressEvent",
         "ReconciliationError",

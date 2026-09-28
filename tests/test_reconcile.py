@@ -7,6 +7,7 @@ import pytest
 from bankstract.reconcile import reconcile, reconcile_result, verify_totals
 from bankstract.schema import (
     ParseResult,
+    ReconciledParseResult,
     ReconciliationError,
     ReconciliationReport,
     Transaction,
@@ -159,3 +160,14 @@ def test_reconcile_result_raises_on_totals_break() -> None:
 @pytest.mark.parametrize(("bank", "path"), fixture_params())
 def test_reconcile_result_per_fixture(bank: str, path: Path) -> None:
     assert reconcile_result(parsed(bank, path)).reconciliation == RECONCILIATION[bank]
+
+
+def test_reconcile_result_returns_reconciled_type() -> None:
+    checked = reconcile_result(_result([_tx("1000.00"), _tx("800.00", debit="200.00")]))
+    assert isinstance(checked, ReconciledParseResult)
+    assert checked.report == ReconciliationReport(totals="not_available", row_wise="passed")
+
+
+def test_reconciled_result_requires_report() -> None:
+    with pytest.raises(ValueError, match="needs a reconciliation report"):
+        ReconciledParseResult(transactions=[], format_version="synthetic")

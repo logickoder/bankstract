@@ -85,6 +85,23 @@ class ParseResult:
         return self.metadata.bank if self.metadata else None
 
 
+# What reconcile_result returns. A frozen dataclass can't narrow the inherited
+# `| None` field, so __post_init__ enforces it and `report` is the narrowed view.
+@dataclass(frozen=True)
+class ReconciledParseResult(ParseResult):
+    def __post_init__(self) -> None:
+        if self.reconciliation is None:
+            raise ValueError(
+                "ReconciledParseResult needs a reconciliation report. "
+                "Build one through reconcile_result()."
+            )
+
+    @property
+    def report(self) -> ReconciliationReport:
+        assert self.reconciliation is not None  # guaranteed by __post_init__
+        return self.reconciliation
+
+
 @dataclass
 class RedactReport:
     bank: str
