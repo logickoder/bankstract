@@ -157,7 +157,7 @@ def parse(
         )
 
 
-def parse_to(
+def convert(
     source: SourceLike,
     *,
     format: Literal["csv", "json"] = "csv",
@@ -187,7 +187,7 @@ def parse_to(
 
     with progress_scope(progress_callback):
         # Inner parse() sees the scope already set and its own
-        # progress_callback=None is a no-op (doesn't clobber). parse_to's
+        # progress_callback=None is a no-op (doesn't clobber). convert's
         # `done` fires after serialize so callers see one terminal event
         # per top-level call, not one per nested phase.
         result = parse(source, bank=bank)

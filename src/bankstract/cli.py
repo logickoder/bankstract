@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 import click
 
-from . import __version__, detect, parse_to
+from . import __version__, convert, detect
 from ._progress import ProgressCallback, ProgressEvent, throttle
 from ._source import Source
 from ._xlsx import sniff_format
@@ -155,7 +155,7 @@ def _run(
     stdout_used = output == "-"
     _check_supported(bank, source)
     try:
-        data = parse_to(
+        data = convert(
             source,
             format=fmt,
             bank=bank,

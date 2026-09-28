@@ -32,14 +32,14 @@ def test_extract_page_monotonic_and_terminal() -> None:
     assert extract[-1].current == extract[-1].total
 
 
-def test_parse_to_fires_reconcile_and_done_once() -> None:
+def test_convert_fires_reconcile_and_done_once() -> None:
     events, cb = _collect()
-    bankstract.parse_to(PALMPAY_SAMPLE, format="csv", bank="palmpay", progress_callback=cb)
+    bankstract.convert(PALMPAY_SAMPLE, format="csv", bank="palmpay", progress_callback=cb)
     reconcile_events = [ev for ev in events if ev.stage == "reconcile"]
     done_events = [ev for ev in events if ev.stage == "done"]
     assert len(reconcile_events) == 1
-    # parse_to wraps parse(); both fire `done`, but contextvar nesting means
-    # the consumer sees BOTH: inner parse `done` + outer parse_to `done`.
+    # convert wraps parse(); both fire `done`, but contextvar nesting means
+    # the consumer sees BOTH: inner parse `done` + outer convert `done`.
     # That's acceptable — terminal-event idempotency is the consumer's job
     # (the bar already handles repeated `current == total`).
     assert len(done_events) >= 1

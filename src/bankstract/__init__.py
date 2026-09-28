@@ -7,7 +7,7 @@ imported from a submodule prefixed with `_` is internal.
 
 __version__ = "0.15.0"
 
-from ._api import detect, list_parsers, list_redactors, parse, parse_to, redact
+from ._api import convert, detect, list_parsers, list_redactors, parse, redact
 from ._progress import ProgressCallback, ProgressEvent, throttle
 from .parsers.base import Parser
 from .redactors.base import Redactor
@@ -48,7 +48,7 @@ __all__ = [
     "list_parsers",
     "list_redactors",
     "parse",
-    "parse_to",
+    "convert",
     "redact",
     "throttle",
     "write_csv",

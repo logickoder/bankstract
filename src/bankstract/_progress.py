@@ -1,6 +1,6 @@
 """
 Progress hooks. Engine fires lifecycle events through `emit()`; consumers
-opt into them via the `progress_callback` kwarg on `parse / parse_to /
+opt into them via the `progress_callback` kwarg on `parse / convert /
 redact`. Callback delivery is contextvar-scoped so concurrent calls don't
 cross-contaminate and parsers stay free of the kwarg.
 
@@ -11,7 +11,7 @@ Literal — adding new stages later is non-breaking. Documented stages today:
     open         — fires once from `_api` post-open (current=1, total=1)
     extract_page — fires N times from `_common.extract_words_per_page`
     walk_page    — fires N times from each parser's outer page loop
-    reconcile    — fires once from `_api.parse_to` post-reconcile
+    reconcile    — fires once from `_api.convert` post-reconcile
     redact_page  — fires N times from `redactors/base.Redactor.redact`
     done         — fires once before the function returns successfully
 
@@ -61,7 +61,7 @@ def progress_scope(callback: ProgressCallback | None) -> Generator[None]:
     `_api` calls or threads.
 
     `callback=None` is a no-op (does NOT clobber an outer scope's callback).
-    This lets `parse_to()` set the scope once and call `parse()` without
+    This lets `convert()` set the scope once and call `parse()` without
     suppressing events on the inner call."""
     if callback is None:
         yield

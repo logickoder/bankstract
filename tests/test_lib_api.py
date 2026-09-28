@@ -45,7 +45,7 @@ def test_public_surface_exports() -> None:
         "list_parsers",
         "list_redactors",
         "parse",
-        "parse_to",
+        "convert",
         "redact",
         "throttle",
         "write_csv",
@@ -62,16 +62,16 @@ def test_parse_signature_unchanged() -> None:
     )
 
 
-def test_parse_to_csv_returns_bytes() -> None:
-    data = bankstract.parse_to(PALMPAY_SAMPLE, format="csv")
+def test_convert_csv_returns_bytes() -> None:
+    data = bankstract.convert(PALMPAY_SAMPLE, format="csv")
     assert isinstance(data, bytes)
     assert len(data) > 0
     # Canonical CSV header is fixed; first line never drifts.
     assert data.startswith(b"date,narration,debit,credit,balance,reference,currency")
 
 
-def test_parse_to_json_returns_bytes() -> None:
-    data = bankstract.parse_to(ZENITH_SAMPLE, format="json")
+def test_convert_json_returns_bytes() -> None:
+    data = bankstract.convert(ZENITH_SAMPLE, format="json")
     assert isinstance(data, bytes)
     payload = json.loads(data)
     assert "transactions" in payload
@@ -79,15 +79,15 @@ def test_parse_to_json_returns_bytes() -> None:
     assert payload["metadata"]["bank"] == "zenith"
 
 
-def test_parse_to_default_format_is_csv() -> None:
-    csv_bytes = bankstract.parse_to(PALMPAY_SAMPLE)
-    explicit = bankstract.parse_to(PALMPAY_SAMPLE, format="csv")
+def test_convert_default_format_is_csv() -> None:
+    csv_bytes = bankstract.convert(PALMPAY_SAMPLE)
+    explicit = bankstract.convert(PALMPAY_SAMPLE, format="csv")
     assert csv_bytes == explicit
 
 
 @pytest.mark.parametrize("fixture,bank", _ALL_PDF_FIXTURES)
 @pytest.mark.parametrize("fmt", ["csv", "json"])
-def test_parse_to_byte_identical_to_cli(fixture: Path, bank: str, fmt: str) -> None:
+def test_convert_byte_identical_to_cli(fixture: Path, bank: str, fmt: str) -> None:
     if not fixture.exists():
         pytest.skip(f"fixture absent: {fixture}")
     proc = subprocess.run(
@@ -95,34 +95,34 @@ def test_parse_to_byte_identical_to_cli(fixture: Path, bank: str, fmt: str) -> N
         capture_output=True,
         check=True,
     )
-    lib_bytes = bankstract.parse_to(fixture, format=fmt, bank=bank)  # pyright: ignore[reportArgumentType]
+    lib_bytes = bankstract.convert(fixture, format=fmt, bank=bank)  # pyright: ignore[reportArgumentType]
     assert proc.stdout == lib_bytes, (
-        f"CLI stdout diverged from parse_to bytes ({bank}/{fmt}). "
+        f"CLI stdout diverged from convert bytes ({bank}/{fmt}). "
         f"CLI={len(proc.stdout)} lib={len(lib_bytes)}"
     )
 
 
-def test_parse_to_line_endings_pinned_csv() -> None:
-    data = bankstract.parse_to(PALMPAY_SAMPLE, format="csv")
+def test_convert_line_endings_pinned_csv() -> None:
+    data = bankstract.convert(PALMPAY_SAMPLE, format="csv")
     # csv module emits \r\n per RFC 4180. No double-translated \r\r\n must
     # leak through (Windows text-mode regression guard).
     assert b"\r\r\n" not in data
     assert b"\r\n" in data
 
 
-def test_parse_to_utf8_roundtrip() -> None:
+def test_convert_utf8_roundtrip() -> None:
     # PalmPay narrations contain the Naira sign ₦ — verify utf-8 clean.
-    data = bankstract.parse_to(PALMPAY_SAMPLE, format="json")
+    data = bankstract.convert(PALMPAY_SAMPLE, format="json")
     decoded = data.decode("utf-8")
     assert json.loads(decoded)  # round-trips
 
 
-def test_parse_to_unknown_format_raises() -> None:
+def test_convert_unknown_format_raises() -> None:
     with pytest.raises(ValueError, match="unsupported output format"):
-        bankstract.parse_to(PALMPAY_SAMPLE, format="xml")  # pyright: ignore[reportArgumentType]
+        bankstract.convert(PALMPAY_SAMPLE, format="xml")  # pyright: ignore[reportArgumentType]
 
 
-def test_parse_to_reconcile_false_skips_invariant() -> None:
+def test_convert_reconcile_false_skips_invariant() -> None:
     # Build a tiny synthetic ParseResult that would fail row-wise reconcile,
     # patch parse() to return it, ensure reconcile=False skips the check.
     from decimal import Decimal
@@ -153,23 +153,23 @@ def test_parse_to_reconcile_false_skips_invariant() -> None:
     api.parse = lambda *_a, **_k: bad  # type: ignore[assignment]
     try:
         with pytest.raises(bankstract.ReconciliationError):
-            bankstract.parse_to(PALMPAY_SAMPLE, reconcile=True)
+            bankstract.convert(PALMPAY_SAMPLE, reconcile=True)
         # reconcile=False bypasses the invariant — returns bytes despite the break.
-        data = bankstract.parse_to(PALMPAY_SAMPLE, reconcile=False)
+        data = bankstract.convert(PALMPAY_SAMPLE, reconcile=False)
         assert b"bad" in data
     finally:
         api.parse = orig
 
 
-def test_parse_to_writes_no_tempfiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_convert_writes_no_tempfiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     before = set(tmp_path.iterdir())
-    bankstract.parse_to(PALMPAY_SAMPLE, format="csv")
+    bankstract.convert(PALMPAY_SAMPLE, format="csv")
     after = set(tmp_path.iterdir())
     assert before == after, f"leaked files: {after - before}"
 
 
-def test_parse_to_empty_result_csv_has_header_only() -> None:
+def test_convert_empty_result_csv_has_header_only() -> None:
     # Synthetic empty ParseResult should serialize to header-only CSV — not a
     # zero-byte payload. Critical: silent zero-byte writes look like
     # parser success to downstream pipelines.
@@ -182,13 +182,13 @@ def test_parse_to_empty_result_csv_has_header_only() -> None:
     orig = api.parse
     api.parse = lambda *_a, **_k: empty  # type: ignore[assignment]
     try:
-        data = bankstract.parse_to(PALMPAY_SAMPLE, format="csv")
+        data = bankstract.convert(PALMPAY_SAMPLE, format="csv")
         assert data == b"date,narration,debit,credit,balance,reference,currency\r\n"
     finally:
         api.parse = orig
 
 
-def test_parse_to_empty_result_json_has_empty_transactions() -> None:
+def test_convert_empty_result_json_has_empty_transactions() -> None:
     from bankstract.schema import ParseResult
 
     empty = ParseResult(transactions=[], format_version="empty")
@@ -198,7 +198,7 @@ def test_parse_to_empty_result_json_has_empty_transactions() -> None:
     orig = api.parse
     api.parse = lambda *_a, **_k: empty  # type: ignore[assignment]
     try:
-        data = bankstract.parse_to(PALMPAY_SAMPLE, format="json")
+        data = bankstract.convert(PALMPAY_SAMPLE, format="json")
         payload = json.loads(data)
         assert payload["transactions"] == []
         assert payload["format_version"] == "empty"

@@ -102,9 +102,9 @@ result.transactions[0].balance
 result.format_version
 
 # Parse + serialize in one call. Byte-identical to the CLI's output.
-csv_bytes  = bankstract.parse_to("statement.pdf")                   # default format="csv"
-json_bytes = bankstract.parse_to(fp, format="json", bank="opay")    # explicit
-debug_bytes = bankstract.parse_to(fp, reconcile=False)              # skip invariant
+csv_bytes  = bankstract.convert("statement.pdf")                   # default format="csv"
+json_bytes = bankstract.convert(fp, format="json", bank="opay")    # explicit
+debug_bytes = bankstract.convert(fp, reconcile=False)              # skip invariant
 
 # Low-level writers. Use when you already hold a ParseResult.
 from pathlib import Path
@@ -121,23 +121,23 @@ redacted.report.redactions                            # count
 def on_progress(ev: bankstract.ProgressEvent) -> None:
     print(f"{ev.stage}: {ev.current}/{ev.total}")
 
-bankstract.parse_to(fp, progress_callback=on_progress)
+bankstract.convert(fp, progress_callback=on_progress)
 
 # CLI bar pattern. Throttle to <=10 events/sec. Stage transitions and terminal
 # events always pass.
 cb = bankstract.throttle(on_progress, min_interval_ms=100)
-bankstract.parse_to(fp, progress_callback=cb)
+bankstract.convert(fp, progress_callback=cb)
 ```
 
 ### Progress events
 
 | Stage          | Fires                                                                | `current`/`total`           |
 | -------------- | -------------------------------------------------------------------- | --------------------------- |
-| `detect`       | once per `parse / parse_to / redact` (post-detection)                | `(1, 1)`                    |
+| `detect`       | once per `parse / convert / redact` (post-detection)                | `(1, 1)`                    |
 | `open`         | once after the parser/redactor opens the source                      | `(1, 1)`                    |
 | `extract_page` | per page during pdfplumber word extraction (the slowest stage)       | `(i, n_pages)`              |
 | `walk_page`    | per page during the parser's row walk; XLSX path emits `(1, 1)` once | `(i, n_pages)` or `(1, 1)`  |
-| `reconcile`    | once from `parse_to` after the invariant runs                        | `(1, 1)`                    |
+| `reconcile`    | once from `convert` after the invariant runs                        | `(1, 1)`                    |
 | `redact_page`  | per page from `redact()`; opay XLSX fires per sheet                  | `(i, n_pages_or_n_sheets)`  |
 | `done`         | once before each top-level call returns                              | `(1, 1)`                    |
 
@@ -150,7 +150,7 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | Name                  | Kind          | Purpose                                             |
 | --------------------- | ------------- | --------------------------------------------------- |
 | `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
-| `parse_to`            | function      | `parse_to(source, *, format="csv", bank=None, reconcile=True, progress_callback=None) -> bytes`. Byte-identical to CLI. |
+| `convert`            | function      | `convert(source, *, format="csv", bank=None, reconcile=True, progress_callback=None) -> bytes`. Byte-identical to CLI. |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
 | `list_parsers`        | function      | sorted bank names (parsers)                         |
 | `write_csv`           | function      | `write_csv(transactions, target: Path \| TextIO) -> int` |

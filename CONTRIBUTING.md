@@ -88,12 +88,12 @@ When you keep reaching for `# type-unknown:` for a structurally similar cause ac
 
 ## Adding a canonical output writer
 
-`bankstract.parse_to` is the single source of truth for parse + serialize. Any new canonical output format (NOT app-specific, see below) ships through it:
+`bankstract.convert` is the single source of truth for parse + serialize. Any new canonical output format (NOT app-specific, see below) ships through it:
 
 1. New module `src/bankstract/writers/<format>.py` exposing `write_<format>(result_or_transactions, target: Path | TextIO) -> int`.
-2. Extend the `Literal["csv", "json"]` annotation in `_api.parse_to` to include the new format. Add a dispatch branch.
+2. Extend the `Literal["csv", "json"]` annotation in `_api.convert` to include the new format. Add a dispatch branch.
 3. Re-export `write_<format>` in `bankstract/__init__.py` (`__all__` + import block).
-4. Parametrize `test_parse_to_byte_identical_to_cli` (in `tests/test_lib_api.py`) over the new format. The CLI subprocess byte-identical check is the load-bearing zero-drift contract.
+4. Parametrize `test_convert_byte_identical_to_cli` (in `tests/test_lib_api.py`) over the new format. The CLI subprocess byte-identical check is the load-bearing zero-drift contract.
 
 Non-canonical / app-specific writers (BB-Wallet CSV, YNAB CSV, Money Manager, etc.) do NOT ship in the engine. They live in consumer tools (e.g. `budgetbakers-wallet-importer`) that read the canonical CSV. The engine emits one canonical CSV + one canonical JSON. See PRD § Canonical CSV schema.
 
