@@ -1,6 +1,6 @@
 # bankstract - PRD
 
-**Status:** concept · v0.1 target
+**Status:** alpha · v0.16
 **License:** MIT
 **Stack:** Python 3.11+
 
@@ -45,6 +45,7 @@ bankstract closes that gap. One clean tool. One plugin contract. Community-drive
 | v0.9    | XLSX support architecture. `_xlsx.py` boundary, `supported_formats` per parser/redactor, OPay PDF + XLSX both first-class. |
 | v0.10   | Removed back-compat aliases. `SourceLike` vs `Source` disambiguation. `ValueError` -> `ParseError` wrapping. |
 | v0.11   | `bankstract.redact()` lib API with in-memory `RedactResult.data: bytes`. `list_redactors()`. `Redactor` + `RedactReport` + `Format` re-exported. |
+| v0.16   | Public `reconcile_result()` + `ReconciliationReport`. `parse_to` renamed `convert`. `Transaction.has_time`. Frozen `ParseResult`. |
 | v0.12+  | GTB (PDF), Kuda / Stanbic / Sparkle / ALAT (XLSX-first), Wise, Bamboo, Risevest.   |
 
 **Out of scope:** category inference, ML-based parsing, GUI, pushing data into third-party trackers (those belong in downstream tools).
@@ -96,6 +97,7 @@ class Transaction(BaseModel):
     balance: Decimal | None = None   # None when the statement omits a running balance
     reference: str | None = None     # bank transaction ID
     currency: str = "NGN"
+    has_time: bool = False           # True only when the statement printed a time for the row
 
 
 @dataclass(frozen=True)
@@ -109,13 +111,24 @@ class StatementMetadata:
     closing_balance: Decimal | None = None
 
 
-@dataclass
+CheckStatus = Literal["passed", "not_available", "disabled"]
+
+
+@dataclass(frozen=True)
+class ReconciliationReport:
+    totals: CheckStatus
+    row_wise: CheckStatus
+
+
+@dataclass(frozen=True)
 class ParseResult:
     transactions: list[Transaction]
     total_credit: Decimal | None = None   # from statement header
     total_debit: Decimal | None = None
     format_version: str | None = None
     metadata: StatementMetadata | None = None
+    row_wise_reconcilable: bool = True    # False when balances are present but don't chain (opay)
+    reconciliation: ReconciliationReport | None = None  # set only by reconcile_result
 ```
 
 Amounts are stored as `Decimal` (not float, financial precision). The Naira sign is stripped before parsing.
@@ -125,14 +138,16 @@ Amounts are stored as `Decimal` (not float, financial precision). The Naira sign
 Two checks:
 
 - **Row-wise** (`reconcile()`): `prev.balance ± debit/credit == curr.balance`. Used when the statement carries a per-row running balance. Mismatch raises `ReconciliationError` with the row index.
-- **Totals-based** (`verify_totals()`): sum of parsed credits/debits equals header `Total Money In` / `Total Money Out`. Used when the statement omits a running balance (e.g. PalmPay). Parsers MUST populate `ParseResult.total_credit/total_debit` in that case, otherwise reconciliation is skipped silently. That's a directive 2 violation.
+- **Totals-based** (`verify_totals()`): sum of parsed credits/debits equals header `Total Money In` / `Total Money Out`. Used when the statement omits a running balance (e.g. PalmPay). Parsers MUST populate `ParseResult.total_credit/total_debit` in that case.
+
+`reconcile_result()` runs both where evidence exists and returns a copy with a `ReconciliationReport`. It raises when no check can run or the balance column is partly blank. `convert()` and the CLI call it. `parse()` doesn't.
 
 Both modes catch silently-dropped rows. That's the failure mode of every naive PDF parser.
 
 ### Failure handling
 
-- **Unparseable blocks** land in a `.log` sidecar file. Never silently dropped.
-- **Format-version drift.** Each parser logs a detected `format_version` at run start. Parse errors include the detected version, so issue reports are actionable.
+- **Unparseable blocks** will land in a `.log` sidecar (planned, not built). Never silently dropped.
+- **Format-version drift.** Parse errors carry the parser's `format_version`, so issue reports are actionable.
 
 ### Repo layout
 
@@ -148,8 +163,8 @@ bankstract/
 │   └── bankstract/            standard src-layout package
 │       ├── cli.py             click + --format csv|json + `-` stdin/stdout
 │       ├── schema.py          Transaction + StatementMetadata + ParseResult + errors
-│       ├── reconcile.py       reconcile() + verify_totals()
-│       ├── _api.py            lib API: parse() / detect() / list_parsers()
+│       ├── reconcile.py       reconcile_result() + reconcile() + verify_totals()
+│       ├── _api.py            lib API: parse() / convert() / detect() / redact() / list_parsers()
 │       ├── _source.py         Source = Path | IO[bytes] + rewind()
 │       ├── _layout.py         Word dataclass + classify + Y-grouping (shared)
 │       ├── _pdfplumber.py     typed facade over pdfplumber
@@ -176,7 +191,9 @@ bankstract/
 │           ├── zenith.py
 │           └── opay.py        PDF + XLSX dispatch
 ├── tests/
+│   ├── _fixtures.py           FIXTURES + RECONCILIATION tables, cached parsed()
 │   ├── test_reconcile.py      bank-agnostic
+│   ├── test_fixture_invariants.py  zero-amount rows, has_time, unset reconciliation
 │   └── <bank>/                one folder per bank
 │       ├── test_parser.py
 │       ├── test_redactor.py
@@ -202,31 +219,14 @@ bankstract list                                 # show registered parsers
 
 | Risk                                                                         | Mitigation                                                                                                 |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Statement format drift. Banks rev PDFs annually.                             | Per-parser `format_version` detection + log on parse error. Per-bank fixture suite in tests.               |
+| Statement format drift. Banks rev PDFs annually.                             | Per-parser `format_version` on every parse error. Per-bank fixture suite in tests.                         |
 | OCR accuracy on scanned statements. Naira / N confusion, comma-separator drift. | Post-OCR regex normalization. Reconciliation invariant catches arithmetic errors before they ship.       |
 | Charset edge cases. Naira sign decodes differently across PDF producers.     | Strip currency symbols and store as `Decimal`.                                                             |
 | Fixture privacy. Sample PDFs contain PII.                                    | All fixtures must be anonymized. Account numbers, names, addresses scrubbed. Never commit unredacted PDFs. |
 
-## Roadmap
-
-- [ ] `pyproject.toml` + Parser ABC + Transaction schema + csv writer + reconciliation
-- [ ] PalmPay parser + 1 anonymized fixture + test
-- [ ] CLI wrapper + auto-detect
-- [ ] README + LICENSE + CI
-- [ ] **v0.1.0**. PyPI release. PalmPay only. FBN marked in progress.
-- [ ] First Bank parser + OCR fallback -> **v0.2.0**
-- [ ] Open issues for next 5 banks. Invite contributors.
-
 ## Contributing
 
-Add a bank in four steps:
-
-1. Copy `src/bankstract/parsers/palmpay.py` to `src/bankstract/parsers/<your_bank>.py` and implement `detect()` + `parse() -> ParseResult`.
-2. Copy `src/bankstract/redactors/palmpay.py` to `src/bankstract/redactors/<your_bank>.py` for the fixture pipeline.
-3. Drop the raw statement in `tests/<your_bank>/fixtures/_local/` (gitignored). Run `uv run bankstract redact <your_bank> <raw> tests/<your_bank>/fixtures/sample.pdf`. Eyeball the output. Commit the redacted sample.
-4. Add tests in `tests/<your_bank>/test_parser.py` and `tests/<your_bank>/test_redactor.py`.
-
-CI runs `ruff` + `pyright` (strict) + `pytest`. All three must pass. Reconciliation invariant must hold on every fixture.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

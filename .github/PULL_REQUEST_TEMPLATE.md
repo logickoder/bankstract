@@ -14,7 +14,7 @@
 - [ ] `uv run pytest` green
 - [ ] CHANGELOG.md updated under unreleased section
 - [ ] README Public API block updated if surface changed
-- [ ] No real bank PDFs in tests/fixtures/ (redactor used or synthetic)
+- [ ] No real bank PDFs committed under tests/<bank>/fixtures/ (redactor used or synthetic)
 - [ ] AST audit (`test_no_bare_parse_error_without_justification`) green
 - [ ] Conventional commit subject: `feat:` / `fix:` / `chore:` / etc.
 

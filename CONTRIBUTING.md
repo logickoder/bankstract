@@ -19,12 +19,12 @@ uv run pytest
 3. Copy `src/bankstract/redactors/palmpay.py` to `src/bankstract/redactors/<bank>.py`. For XLSX redaction, override `Redactor.redact()` to dispatch on `sniff_format(src)`. openpyxl cell-level rewrites for XLSX. Fall through to the inherited template-method PDF pipeline otherwise.
 4. Drop the raw statement at `tests/<bank>/fixtures/_local/statement.{pdf,xlsx}` (gitignored). Run `uv run bankstract redact <bank> tests/<bank>/fixtures/_local/statement.pdf tests/<bank>/fixtures/sample.pdf`. Eyeball the output. Commit only the redacted sample.
 5. Add `tests/<bank>/test_parser.py` + `tests/<bank>/test_redactor.py`. Multi-format banks parametrize tests over both `.pdf` and `.xlsx` fixtures.
+6. Register the bank in `tests/_fixtures.py` (`FIXTURES`, `RECONCILIATION`) and `_PRECISION` in `tests/test_fixture_invariants.py`. The cross-bank tests pick it up from there.
+7. Set `has_time=True` only on rows that print a time. Never set `ParseResult.reconciliation`.
 
 ### Parser self-registration
 
 Each parser self-registers by calling `register(MyParser())` at module top level. The CLI walks `all_parsers()` and synthesizes a `bankstract <bank>` command per registered parser via `cli.py`'s `for _bank in sorted(all_parsers()): _bank_command(_bank)`. Side-effect imports in `parsers/__init__.py` make every new parser file load on package import. Adding a new file is enough. No central registry edit.
-
-That import-side-effect choice trades a small static-analysis discoverability hit (IDE doesn't auto-suggest `bankstract <newbank>` until the package re-loads) for zero per-bank wiring. Acceptable for the plugin shape.
 
 ### Dual-fixture testing rule
 
@@ -47,7 +47,7 @@ _FIXTURES = [
 ]
 ```
 
-`tests/conftest.py` also emits CSV + JSON for every fixture into `_local/<stem>.{ext}.{csv,json}` on every pytest run so the owner can eyeball parser output across all banks without re-running the CLI.
+`tests/conftest.py` also emits CSV + JSON for every fixture in `tests/_fixtures.FIXTURES` into `_local/<stem>.{ext}.{csv,json}` on every pytest run so the owner can eyeball parser output across all banks without re-running the CLI.
 
 ## Fixture privacy
 
@@ -95,11 +95,11 @@ When you keep reaching for `# type-unknown:` for a structurally similar cause ac
 3. Re-export `write_<format>` in `bankstract/__init__.py` (`__all__` + import block).
 4. Parametrize `test_convert_byte_identical_to_cli` (in `tests/test_lib_api.py`) over the new format. The CLI subprocess byte-identical check is the load-bearing zero-drift contract.
 
-Non-canonical / app-specific writers (BB-Wallet CSV, YNAB CSV, Money Manager, etc.) do NOT ship in the engine. They live in consumer tools (e.g. `budgetbakers-wallet-importer`) that read the canonical CSV. The engine emits one canonical CSV + one canonical JSON. See PRD § Canonical CSV schema.
+Non-canonical / app-specific writers (BB-Wallet CSV, YNAB CSV, Money Manager, etc.) do NOT ship in the engine. They live in consumer tools (e.g. `budgetbakers-wallet-importer`) that read the canonical CSV. The engine emits one canonical CSV + one canonical JSON. See README § Output.
 
 ## Reconciliation invariant
 
-Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance` (banks with a balance column) OR where the parsed credit/debit sums match the statement header's totals (banks without). The CLI applies whichever invariants the parser supplied evidence for. Never weaken `reconcile.py` to make tests pass. The parser is wrong, not the invariant.
+Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance` (banks with a balance column) OR where the parsed credit/debit sums match the statement header's totals (banks without). `reconcile_result` runs whichever checks have evidence and raises when none can. Never weaken `reconcile.py` to make tests pass. The parser is wrong, not the invariant.
 
 ## Commits
 
@@ -111,3 +111,21 @@ Conventional Commits. CI release gate keys off the prefix:
 - Anything else: workflow logs a warning and skips publish
 
 Don't push or tag without owner approval. Diffs reviewed manually.
+
+## Releasing
+
+CI publishes to PyPI on push to `main` via `.github/workflows/publish.yml`. The workflow runs the full gate (ruff + pyright + pytest). If the current `pyproject.toml` version already exists on PyPI, it auto-bumps the minor and commits the bump before publishing. PyPI auth uses OIDC trusted publishing. No token in repo or CI secrets.
+
+To prepare a release locally:
+
+```bash
+scripts/bump-version.sh                 # patch bump
+scripts/bump-version.sh minor           # 0.2.x -> 0.3.0
+scripts/bump-version.sh major           # 0.x.x -> 1.0.0
+scripts/bump-version.sh 0.3.0           # exact set
+uv build                                # dist/*.whl + dist/*.tar.gz
+uv publish dist/*                       # skip if using the GH workflow. Needs --token or UV_PUBLISH_TOKEN
+```
+
+Trusted-publisher setup (one-time, owner only): create a publisher at <https://pypi.org/manage/account/publishing/> with workflow `publish.yml`, repo `logickoder/bankstract`.
+

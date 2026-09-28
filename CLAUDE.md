@@ -15,7 +15,7 @@ Never invent regex patterns, table coordinates, or column orders for a bank form
 Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance`. If a parser change breaks reconciliation on any fixture, the parser is wrong, not the invariant. Never weaken `reconcile.py` to make tests pass.
 
 ### 3. FIXTURE PRIVACY IS NON-NEGOTIABLE
-Sample PDFs in `tests/fixtures/` contain real account data. Before any fixture lands in git:
+Sample PDFs in `tests/<bank>/fixtures/` contain real account data. Before any fixture lands in git:
 - Account number -> `XXXXXXXXXX`
 - Name -> `Test User`
 - Address -> `Test Address`
@@ -65,8 +65,8 @@ bankstract/
 │       ├── __init__.py        rejects prefix rewrites, so use a real subdir)
 │       ├── cli.py             click entrypoint with --format csv|json + `-` stdin/stdout
 │       ├── schema.py          pydantic Transaction + StatementMetadata + ParseResult + errors
-│       ├── reconcile.py       row-wise + totals-based invariant checks
-│       ├── _api.py            lib API: parse() / detect() / list_parsers()
+│       ├── reconcile.py       reconcile_result() entry point + row-wise / totals checks
+│       ├── _api.py            lib API: parse() / convert() / detect() / redact() / list_parsers()
 │       ├── _source.py         Source = Path | IO[bytes] + rewind() helper
 │       ├── _layout.py         shared Word dataclass + classify + Y-grouping
 │       ├── _pdfplumber.py     typed facade over pdfplumber (open_doc)
@@ -94,7 +94,9 @@ bankstract/
 │           ├── zenith.py      column-aware aggressive blank (skips above table header)
 │           └── opay.py        PDF column-aware + XLSX cell-level rewrite
 ├── tests/
+│   ├── _fixtures.py           FIXTURES + RECONCILIATION tables, cached parsed()
 │   ├── test_reconcile.py      bank-agnostic invariant tests
+│   ├── test_fixture_invariants.py  cross-bank row checks (zero amounts, has_time)
 │   └── <bank>/                one folder per bank, mirrors src/ layout
 │       ├── test_parser.py
 │       ├── test_redactor.py
@@ -138,15 +140,15 @@ uv run pyright src tests
 
 # test
 uv run pytest                              # all
-uv run pytest tests/test_palmpay.py -v     # one bank
+uv run pytest tests/palmpay -v             # one bank
 uv run pytest -k reconcile                 # invariant only
 
 # run CLI locally
-uv run bankstract palmpay tests/fixtures/palmpay/sample.pdf -o /tmp/out.csv
+uv run bankstract palmpay tests/palmpay/fixtures/sample.pdf -o /tmp/out.csv
 
 # redact a raw statement into a committable fixture
 uv run bankstract redact list
-uv run bankstract redact palmpay tests/fixtures/palmpay/_local/statement.pdf tests/fixtures/palmpay/sample.pdf
+uv run bankstract redact palmpay tests/palmpay/fixtures/_local/statement.pdf tests/palmpay/fixtures/sample.pdf
 
 # bump version
 scripts/bump-version.sh                 # patch bump (default)
@@ -177,11 +179,12 @@ class Parser(ABC):
         return 1.0 if self.detect(source) else 0.0  # override with marker fraction
 ```
 
-`Source = Path | IO[bytes]`. `ParseResult` carries the transaction list plus optional `total_credit` / `total_debit` read from the statement header + `StatementMetadata` + `format_version` + `row_wise_reconcilable` opt-out. Parsers whose statements omit a per-row balance column MUST populate the totals so the CLI can fall back to `verify_totals()` instead of silently skipping reconciliation. Multi-format parsers (e.g. OPay) dispatch internally on `sniff_format(source)` and emit per-format `format_version` constants (`opay-pdf-2026-01` vs `opay-xlsx-2026-01`) so drift detection works per format independently.
+`Source = Path | IO[bytes]`. `ParseResult` (frozen) carries the transaction list plus optional `total_credit` / `total_debit` read from the statement header + `StatementMetadata` + `format_version` + `row_wise_reconcilable` opt-out + `reconciliation` (set by `reconcile_result` only). Parsers whose statements omit a per-row balance column MUST populate the totals. Multi-format parsers (e.g. OPay) dispatch internally on `sniff_format(source)` and emit per-format `format_version` constants (`opay-pdf-2026-01` vs `opay-xlsx-2026-01`) so drift detection works per format independently.
 
 Rules:
 - `detect()` is cheap. Read first page (PDF) or sheet names (XLSX), match header string or column signature. No full parse.
 - `parse()` raises `ParseError` (carrying `format_version`) on layout mismatch. No silent return of `[]`.
+- Set `Transaction.has_time=True` only on rows that print a time.
 - Unparseable mid-document blocks land in a `.log` sidecar. Never silently dropped. Add a shared helper in `writers/` when the first parser needs one. No speculative helper today.
 - Each parser self-registers in `parsers/__init__.py` via import side-effect. No central registry edit needed.
 - Share, don't duplicate. Amount/account helpers live in `parsers/_money.py` (`parse_amount`, `parse_amount_optional`, `mask_account_number`). Columnar walkers in `_columnar.py`. pdfplumber/openpyxl boundaries in `_common.py` / `_xlsx.py`.
@@ -190,7 +193,7 @@ Rules:
 ## TESTING
 
 - Every parser ships with at least one anonymized fixture under `tests/<bank>/fixtures/sample.pdf`
-- Reconciliation invariant tested for every fixture in `test_reconcile.py` (row-wise + totals-based)
+- Reconciliation invariant tested for every fixture in `test_reconcile.py` (row-wise + totals-based). Register new banks in `tests/_fixtures.py`
 - Format-version detection tested against multiple versions when more than one is available
 - Each parser has a sibling `tests/<bank>/test_redactor.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)
 - No mocking of `pdfplumber` / `camelot` / `pytesseract` / `openpyxl`. Tests run against real fixture PDFs/XLSX.
@@ -225,5 +228,5 @@ Owner spec lives in memory at `voice-public-copy`. Highlights:
 
 - State change: terse confirmation with file + function name
 - Diagnosis: root cause in one to two sentences, then the fix
-- Refusal: cite the directive being upheld (e.g. "fixture not read. Read tests/fixtures/fbn/sample.pdf first")
+- Refusal: cite the directive being upheld (e.g. "fixture not read. Read tests/fbn/fixtures/sample.pdf first")
 - Never apologize. Acknowledge errors technically and move on.
