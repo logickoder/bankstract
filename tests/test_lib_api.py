@@ -9,22 +9,21 @@ import pytest
 
 import bankstract
 
+from ._fixtures import fixture_params
+
 PALMPAY_SAMPLE = Path(__file__).parent / "palmpay" / "fixtures" / "sample.pdf"
 FBN_SAMPLE = Path(__file__).parent / "fbn" / "fixtures" / "sample.pdf"
 ZENITH_SAMPLE = Path(__file__).parent / "zenith" / "fixtures" / "sample.pdf"
-OPAY_PDF = Path(__file__).parent / "opay" / "fixtures" / "sample.pdf"
 
-_ALL_PDF_FIXTURES = [
-    pytest.param(PALMPAY_SAMPLE, "palmpay", id="palmpay"),
-    pytest.param(FBN_SAMPLE, "fbn", id="fbn"),
-    pytest.param(ZENITH_SAMPLE, "zenith", id="zenith"),
-    pytest.param(OPAY_PDF, "opay", id="opay"),
-]
+# Committed samples only: CI must run the CLI byte-identity contract without
+# raw fixtures, and every bank + format in FIXTURES joins it automatically.
+_SAMPLES = fixture_params(committed_only=True)
 
 
 def test_public_surface_exports() -> None:
     # Exact set: any addition or removal here is a semver-relevant change.
     assert set(bankstract.__all__) == {
+        "CheckStatus",
         "EmptyStatementError",
         "EncryptedSourceError",
         "Format",
@@ -35,6 +34,7 @@ def test_public_surface_exports() -> None:
         "ProgressCallback",
         "ProgressEvent",
         "ReconciliationError",
+        "ReconciliationReport",
         "RedactReport",
         "RedactResult",
         "Redactor",
@@ -46,6 +46,7 @@ def test_public_surface_exports() -> None:
         "list_redactors",
         "parse",
         "convert",
+        "reconcile_result",
         "redact",
         "throttle",
         "write_csv",
@@ -85,6 +86,12 @@ def test_convert_json_returns_bytes() -> None:
     assert "transactions" in payload
     assert len(payload["transactions"]) > 0
     assert payload["metadata"]["bank"] == "zenith"
+    assert "reconciliation" in payload
+
+
+def test_convert_json_omits_reconciliation_when_skipped() -> None:
+    payload = json.loads(bankstract.convert(ZENITH_SAMPLE, format="json", reconcile=False))
+    assert "reconciliation" not in payload
 
 
 def test_convert_default_format_is_csv() -> None:
@@ -93,11 +100,9 @@ def test_convert_default_format_is_csv() -> None:
     assert csv_bytes == explicit
 
 
-@pytest.mark.parametrize("fixture,bank", _ALL_PDF_FIXTURES)
+@pytest.mark.parametrize(("bank", "fixture"), _SAMPLES)
 @pytest.mark.parametrize("fmt", ["csv", "json"])
-def test_convert_byte_identical_to_cli(fixture: Path, bank: str, fmt: str) -> None:
-    if not fixture.exists():
-        pytest.skip(f"fixture absent: {fixture}")
+def test_convert_byte_identical_to_cli(bank: str, fixture: Path, fmt: str) -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "bankstract", bank, str(fixture), "-o", "-", "-f", fmt],
         capture_output=True,
@@ -180,7 +185,8 @@ def test_convert_writes_no_tempfiles(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_convert_empty_result_csv_has_header_only() -> None:
     # Synthetic empty ParseResult should serialize to header-only CSV — not a
     # zero-byte payload. Critical: silent zero-byte writes look like
-    # parser success to downstream pipelines.
+    # parser success to downstream pipelines. reconcile=False because an empty
+    # result carries no evidence and would raise before serializing.
     from bankstract.schema import ParseResult
 
     empty = ParseResult(transactions=[], format_version="empty")
@@ -190,7 +196,7 @@ def test_convert_empty_result_csv_has_header_only() -> None:
     orig = api.parse
     api.parse = lambda *_a, **_k: empty  # type: ignore[assignment]
     try:
-        data = bankstract.convert(PALMPAY_SAMPLE, format="csv")
+        data = bankstract.convert(PALMPAY_SAMPLE, format="csv", reconcile=False)
         assert data == b"date,narration,debit,credit,balance,reference,currency,has_time\r\n"
     finally:
         api.parse = orig
@@ -206,7 +212,7 @@ def test_convert_empty_result_json_has_empty_transactions() -> None:
     orig = api.parse
     api.parse = lambda *_a, **_k: empty  # type: ignore[assignment]
     try:
-        data = bankstract.convert(PALMPAY_SAMPLE, format="json")
+        data = bankstract.convert(PALMPAY_SAMPLE, format="json", reconcile=False)
         payload = json.loads(data)
         assert payload["transactions"] == []
         assert payload["format_version"] == "empty"
@@ -248,15 +254,8 @@ def test_list_parsers_returns_sorted() -> None:
     assert "zenith" in names
 
 
-@pytest.mark.parametrize(
-    "fixture,expected",
-    [
-        (PALMPAY_SAMPLE, "palmpay"),
-        (FBN_SAMPLE, "fbn"),
-        (ZENITH_SAMPLE, "zenith"),
-    ],
-)
-def test_detect_picks_correct_parser(fixture: Path, expected: str) -> None:
+@pytest.mark.parametrize(("expected", "fixture"), _SAMPLES)
+def test_detect_picks_correct_parser(expected: str, fixture: Path) -> None:
     assert bankstract.detect(fixture) == expected
     assert bankstract.detect(str(fixture)) == expected
 

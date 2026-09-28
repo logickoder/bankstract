@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pytest
 
+from bankstract import reconcile_result
 from bankstract._layout import Word, classify
 from bankstract.parsers import get
 from bankstract.parsers._columnar import column_of, row_columns
 from bankstract.parsers.zenith import COLUMNS, _is_chrome_row, _is_tx_row
-from bankstract.reconcile import reconcile
 from bankstract.schema import ParseResult
+
+from .._fixtures import RECONCILIATION, parsed
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 SAMPLE = FIXTURE_DIR / "sample.pdf"
@@ -97,8 +99,7 @@ def test_chrome_row_matches_structural_patterns_not_narration_credit() -> None:
 
 @pytest.mark.skipif(not SAMPLE.exists(), reason="no zenith sample fixture")
 def test_parses_redacted_fixture() -> None:
-    parser = get("zenith")
-    result: ParseResult = parser.parse(SAMPLE)
+    result: ParseResult = parsed("zenith", SAMPLE)
     assert result.format_version == "zenith-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:
@@ -108,13 +109,12 @@ def test_parses_redacted_fixture() -> None:
     # Zenith ships a running balance; row-wise reconcile is the load-bearing
     # invariant (the statement TOTALS row mixes opening balance into the
     # credit column so it isn't a clean period sum — see parser docstring).
-    reconcile(result.transactions)
+    assert reconcile_result(result).reconciliation == RECONCILIATION["zenith"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES)
 def test_metadata_extracted(fixture: Path) -> None:
-    parser = get("zenith")
-    result = parser.parse(fixture)
+    result = parsed("zenith", fixture)
     md = result.metadata
     assert md is not None
     assert md.bank == "zenith"

@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from bankstract import reconcile_result
 from bankstract.parsers import get
-from bankstract.reconcile import verify_totals
 from bankstract.schema import ParseResult
+
+from .._fixtures import RECONCILIATION, parsed
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 SAMPLE_PDF = FIXTURE_DIR / "sample.pdf"
@@ -45,8 +47,7 @@ def test_parser_registered() -> None:
 
 @pytest.mark.skipif(not SAMPLE_PDF.exists(), reason="no opay sample fixture")
 def test_parses_redacted_fixture() -> None:
-    parser = get("opay")
-    result: ParseResult = parser.parse(SAMPLE_PDF)
+    result: ParseResult = parsed("opay", SAMPLE_PDF)
     assert result.format_version == "opay-pdf-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:
@@ -58,17 +59,12 @@ def test_parses_redacted_fixture() -> None:
     assert result.row_wise_reconcilable is False
     assert result.total_credit is not None
     assert result.total_debit is not None
-    verify_totals(
-        result.transactions,
-        total_credit=result.total_credit,
-        total_debit=result.total_debit,
-    )
+    assert reconcile_result(result).reconciliation == RECONCILIATION["opay"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES)
 def test_metadata_extracted(fixture: Path) -> None:
-    parser = get("opay")
-    result = parser.parse(fixture)
+    result = parsed("opay", fixture)
     md = result.metadata
     assert md is not None
     assert md.bank == "opay"

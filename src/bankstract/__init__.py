@@ -7,11 +7,20 @@ imported from a submodule prefixed with `_` is internal.
 
 __version__ = "0.15.0"
 
-from ._api import convert, detect, list_parsers, list_redactors, parse, redact
+from ._api import (
+    convert,
+    detect,
+    list_parsers,
+    list_redactors,
+    parse,
+    reconcile_result,
+    redact,
+)
 from ._progress import ProgressCallback, ProgressEvent, throttle
 from .parsers.base import Parser
 from .redactors.base import Redactor
 from .schema import (
+    CheckStatus,
     EmptyStatementError,
     EncryptedSourceError,
     Format,
@@ -19,6 +28,7 @@ from .schema import (
     ParseError,
     ParseResult,
     ReconciliationError,
+    ReconciliationReport,
     RedactReport,
     RedactResult,
     StatementMetadata,
@@ -28,6 +38,7 @@ from .writers.csv import write_csv
 from .writers.json import write_json
 
 __all__ = [
+    "CheckStatus",
     "EmptyStatementError",
     "EncryptedSourceError",
     "Format",
@@ -38,6 +49,7 @@ __all__ = [
     "ProgressCallback",
     "ProgressEvent",
     "ReconciliationError",
+    "ReconciliationReport",
     "RedactReport",
     "RedactResult",
     "Redactor",
@@ -49,6 +61,7 @@ __all__ = [
     "list_redactors",
     "parse",
     "convert",
+    "reconcile_result",
     "redact",
     "throttle",
     "write_csv",

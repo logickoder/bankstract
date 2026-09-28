@@ -3,12 +3,14 @@ from pathlib import Path
 
 import pytest
 
+from bankstract import reconcile_result
 from bankstract._layout import Word, classify
 from bankstract.parsers import get
 from bankstract.parsers._columnar import column_of, row_columns
 from bankstract.parsers.fbn import CHROME_MARKERS, COLUMNS, _is_chrome_row, _is_tx_row
-from bankstract.reconcile import reconcile, verify_totals
 from bankstract.schema import ParseResult
+
+from .._fixtures import RECONCILIATION, parsed
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 SAMPLE = FIXTURE_DIR / "sample.pdf"
@@ -83,29 +85,20 @@ def test_chrome_markers_terminate_continuation() -> None:
 
 @pytest.mark.skipif(not SAMPLE.exists(), reason="no fbn sample fixture")
 def test_parses_redacted_fixture() -> None:
-    parser = get("fbn")
-    result: ParseResult = parser.parse(SAMPLE)
+    result: ParseResult = parsed("fbn", SAMPLE)
     assert result.format_version == "fbn-2026-01"
     assert len(result.transactions) > 0
     for tx in result.transactions:
         assert tx.debit > 0 or tx.credit > 0
         assert tx.balance is not None
 
-    reconcile(result.transactions)
-
-    assert result.total_credit is not None
-    assert result.total_debit is not None
-    verify_totals(
-        result.transactions,
-        total_credit=result.total_credit,
-        total_debit=result.total_debit,
-    )
+    # FBN carries both header totals and a running balance. Both must check.
+    assert reconcile_result(result).reconciliation == RECONCILIATION["fbn"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES)
 def test_metadata_extracted(fixture: Path) -> None:
-    parser = get("fbn")
-    result = parser.parse(fixture)
+    result = parsed("fbn", fixture)
     md = result.metadata
     assert md is not None
     assert md.bank == "fbn"

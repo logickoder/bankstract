@@ -1,22 +1,42 @@
+"""Reconciliation checks. `reconcile_result` is the entry point: it picks
+which checks apply and raises when none can run. `reconcile()` and
+`verify_totals()` are its building blocks. `reconcile()` alone returns False
+on a statement without balances, so a caller that ignores the return value
+verifies nothing."""
+
 from collections.abc import Iterable
+from dataclasses import replace
 from decimal import Decimal
 
-from .schema import ReconciliationError, Transaction
+from ._progress import emit
+from .schema import (
+    CheckStatus,
+    ParseResult,
+    ReconciliationError,
+    ReconciliationReport,
+    Transaction,
+)
 
 TOLERANCE = Decimal("0.01")
 
 
-def reconcile(transactions: Iterable[Transaction]) -> None:
+def reconcile(transactions: Iterable[Transaction]) -> bool:
     """Row-wise invariant: prev.balance - debit + credit == curr.balance.
 
-    Skips silently if any transaction has balance=None (statement has no
-    running-balance column — the caller MUST then run verify_totals against
-    parser-supplied header totals, otherwise reconciliation is being skipped
-    entirely, in violation of CLAUDE.md directive 2.
-    """
+    Returns False without checking when no row has a balance (the statement
+    has no balance column), else True once every row checked clean."""
     txs = list(transactions)
-    if not txs or any(t.balance is None for t in txs):
-        return
+    missing = [i for i, t in enumerate(txs) if t.balance is None]
+    if not txs or len(missing) == len(txs):
+        return False
+    # A balance column that's blank on some rows is a parser slip, not a
+    # layout without balances. Skipping here would hide it behind totals.
+    if missing:
+        raise ReconciliationError(
+            f"row {missing[0]}: balance missing. {len(missing)} of {len(txs)} rows "
+            "have no balance while the rest do. Report the statement layout.",
+            row_index=missing[0],
+        )
 
     prev: Transaction | None = None
     for i, tx in enumerate(txs):
@@ -33,6 +53,7 @@ def reconcile(transactions: Iterable[Transaction]) -> None:
                 row_index=i,
             )
         prev = tx
+    return True
 
 
 def verify_totals(
@@ -55,3 +76,39 @@ def verify_totals(
         raise ReconciliationError(
             f"debits sum {sum_debit} does not match stated total {total_debit}"
         )
+
+
+def reconcile_result(result: ParseResult) -> ParseResult:
+    """Run every reconciliation check `result` carries evidence for and return
+    a copy with `.reconciliation` set. The input is left untouched.
+
+    Totals run when the parser read header totals. Row-wise runs when every
+    row has a balance and the parser didn't opt out. FBN-style statements get
+    both: totals catch dropped rows, row-wise catches per-row arithmetic that
+    happens to sum out. A failed check raises `ReconciliationError`. So does a
+    result with no evidence for either check, since that would otherwise pass
+    unverified."""
+    totals: CheckStatus = "not_available"
+    if result.total_credit is not None and result.total_debit is not None:
+        verify_totals(
+            result.transactions,
+            total_credit=result.total_credit,
+            total_debit=result.total_debit,
+        )
+        totals = "passed"
+
+    row_wise: CheckStatus
+    if not result.row_wise_reconcilable:
+        row_wise = "disabled"
+    elif reconcile(result.transactions):
+        row_wise = "passed"
+    else:
+        row_wise = "not_available"
+
+    if totals != "passed" and row_wise != "passed":
+        raise ReconciliationError(
+            "no reconciliation evidence. Statement has neither header totals "
+            "nor a checkable balance column. Report the statement layout."
+        )
+    emit("reconcile", 1, 1)
+    return replace(result, reconciliation=ReconciliationReport(totals=totals, row_wise=row_wise))

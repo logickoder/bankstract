@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from bankstract import reconcile_result
 from bankstract._layout import Word, classify
 from bankstract.parsers import get
 from bankstract.parsers.palmpay import (
@@ -10,8 +11,9 @@ from bankstract.parsers.palmpay import (
     _parse_row,
     _row_kind,
 )
-from bankstract.reconcile import verify_totals
 from bankstract.schema import ParseResult
+
+from .._fixtures import RECONCILIATION, parsed
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 SAMPLE = FIXTURE_DIR / "sample.pdf"
@@ -110,8 +112,7 @@ def test_continuation_tokens_extracts_text_only() -> None:
 
 @pytest.mark.skipif(not SAMPLE.exists(), reason="no palmpay sample fixture")
 def test_parses_redacted_fixture() -> None:
-    parser = get("palmpay")
-    result: ParseResult = parser.parse(SAMPLE)
+    result: ParseResult = parsed("palmpay", SAMPLE)
     assert result.format_version == "palmpay-2026-01"
     assert len(result.transactions) > 0
     assert result.total_credit is not None
@@ -121,17 +122,12 @@ def test_parses_redacted_fixture() -> None:
 
     # Load-bearing invariant (CLAUDE.md directive 2): parsed sums must equal
     # the totals printed in the statement header.
-    verify_totals(
-        result.transactions,
-        total_credit=result.total_credit,
-        total_debit=result.total_debit,
-    )
+    assert reconcile_result(result).reconciliation == RECONCILIATION["palmpay"]
 
 
 @pytest.mark.parametrize("fixture", _FIXTURES)
 def test_metadata_extracted(fixture: Path) -> None:
-    parser = get("palmpay")
-    result = parser.parse(fixture)
+    result = parsed("palmpay", fixture)
     md = result.metadata
     assert md is not None
     assert md.bank == "palmpay"

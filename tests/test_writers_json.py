@@ -1,10 +1,11 @@
 import json
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 
-from bankstract.schema import ParseResult, StatementMetadata, Transaction
+from bankstract.schema import ParseResult, ReconciliationReport, StatementMetadata, Transaction
 from bankstract.writers.json import write_json
 
 
@@ -79,3 +80,20 @@ def test_write_json_handles_none_metadata() -> None:
     assert payload["metadata"] is None
     assert payload["totals"] == {"credit": None, "debit": None}
     assert payload["transactions"] == []
+
+
+def test_write_json_omits_reconciliation_by_default() -> None:
+    buf = StringIO()
+    write_json(_sample_result(), buf)
+    assert "reconciliation" not in json.loads(buf.getvalue())
+
+
+def test_write_json_includes_reconciliation_report() -> None:
+    buf = StringIO()
+    result = replace(
+        _sample_result(),
+        reconciliation=ReconciliationReport(totals="passed", row_wise="not_available"),
+    )
+    write_json(result, buf)
+    payload = json.loads(buf.getvalue())
+    assert payload["reconciliation"] == {"totals": "passed", "row_wise": "not_available"}

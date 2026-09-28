@@ -21,7 +21,7 @@ def _encode(value: Any) -> Any:
 def _result_to_dict(result: ParseResult) -> dict[str, Any]:
     # No top-level `bank` field — `metadata.bank` is canonical and the only
     # source of truth. Shipping both would create a drift surface.
-    return {
+    payload: dict[str, Any] = {
         "format_version": result.format_version,
         "metadata": result.metadata,
         "totals": {
@@ -30,6 +30,11 @@ def _result_to_dict(result: ParseResult) -> dict[str, Any]:
         },
         "transactions": [tx.model_dump(mode="json") for tx in result.transactions],
     }
+    # Omitted, not null, when reconciliation was skipped: an absent key can't
+    # be misread as "checked and nothing applied".
+    if result.reconciliation is not None:
+        payload["reconciliation"] = asdict(result.reconciliation)
+    return payload
 
 
 def write_json(result: ParseResult, out: Path | TextIO) -> int:

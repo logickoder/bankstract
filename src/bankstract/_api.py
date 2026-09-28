@@ -16,8 +16,7 @@ from ._progress import ProgressCallback, emit, progress_scope
 from ._source import Source, rewind
 from .parsers import all_parsers, get
 from .parsers.base import Parser
-from .reconcile import reconcile as _reconcile_rows
-from .reconcile import verify_totals
+from .reconcile import reconcile_result
 from .redactors import all_redactors
 from .redactors import get as get_redactor
 from .redactors.base import Redactor
@@ -193,19 +192,7 @@ def convert(
         result = parse(source, bank=bank)
 
         if reconcile:
-            # Run every check the parser supplied evidence for. verify_totals is
-            # sum-based (needs header totals); _reconcile_rows is row-wise (needs a
-            # balance column). Banks like FBN ship both — totals catch dropped
-            # rows, row-wise catches per-row arithmetic that happens to sum out.
-            if result.total_credit is not None and result.total_debit is not None:
-                verify_totals(
-                    result.transactions,
-                    total_credit=result.total_credit,
-                    total_debit=result.total_debit,
-                )
-            if result.row_wise_reconcilable:
-                _reconcile_rows(result.transactions)
-            emit("reconcile", 1, 1)
+            result = reconcile_result(result)
 
         buf = io.StringIO()
         if format == "csv":

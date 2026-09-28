@@ -44,13 +44,29 @@ class StatementMetadata:
     closing_balance: Decimal | None = None
 
 
-@dataclass
+# passed: the check ran clean. not_available: the statement lacks the evidence
+# (no header totals, or some row has balance=None). disabled: the parser opted
+# out of row-wise via `row_wise_reconcilable=False`. A failed check raises
+# ReconciliationError instead of reporting a status.
+CheckStatus = Literal["passed", "not_available", "disabled"]
+
+
+@dataclass(frozen=True)
+class ReconciliationReport:
+    totals: CheckStatus
+    row_wise: CheckStatus
+
+
+# Frozen: reconcile_result returns a checked copy, and tests share cached
+# instances. Nothing may mutate a result in place.
+@dataclass(frozen=True)
 class ParseResult:
     transactions: list[Transaction] = field(default_factory=list)
     total_credit: Decimal | None = None
     total_debit: Decimal | None = None
     format_version: str | None = None
     metadata: StatementMetadata | None = None
+    # Parser opt-out for balances that are present but don't chain.
     # Set False when the statement's balance column doesn't satisfy
     # `prev.balance ± debit/credit == curr.balance` despite carrying per-row
     # balances (e.g. OPay's wallet column omits implicit OWealth side-effects
@@ -58,6 +74,8 @@ class ParseResult:
     # MUST populate total_credit/total_debit so verify_totals still catches
     # silently-dropped rows.
     row_wise_reconcilable: bool = True
+    # None until `reconcile_result` returns a checked copy. Parsers never set it.
+    reconciliation: ReconciliationReport | None = None
 
 
 @dataclass

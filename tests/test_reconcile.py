@@ -1,10 +1,18 @@
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
-from bankstract.reconcile import reconcile, verify_totals
-from bankstract.schema import ReconciliationError, Transaction
+from bankstract.reconcile import reconcile, reconcile_result, verify_totals
+from bankstract.schema import (
+    ParseResult,
+    ReconciliationError,
+    ReconciliationReport,
+    Transaction,
+)
+
+from ._fixtures import RECONCILIATION, fixture_params, parsed
 
 
 def _tx(
@@ -48,7 +56,21 @@ def test_reconcile_skips_when_balance_missing() -> None:
     # Statements without a balance column (PalmPay) yield txs with balance=None;
     # row-wise reconcile() should silently skip — verify_totals handles it.
     rows = [_tx(None, credit="100.00"), _tx(None, debit="40.00")]
-    reconcile(rows)
+    assert reconcile(rows) is False
+
+
+def test_reconcile_raises_on_partial_balances() -> None:
+    rows = [_tx("1000.00"), _tx(None, debit="200.00"), _tx("1300.00", credit="500.00")]
+    with pytest.raises(ReconciliationError, match="balance missing") as info:
+        reconcile(rows)
+    assert info.value.row_index == 1
+
+
+def test_reconcile_result_raises_on_partial_balances() -> None:
+    # Totals alone would pass here. The partial column must still fail.
+    rows = [_tx("1000.00"), _tx(None, debit="200.00")]
+    with pytest.raises(ReconciliationError, match="balance missing"):
+        reconcile_result(_result(rows, totals=("0", "200.00")))
 
 
 def test_verify_totals_passes_on_match() -> None:
@@ -71,3 +93,69 @@ def test_verify_totals_raises_on_debit_mismatch() -> None:
 def test_verify_totals_respects_tolerance() -> None:
     rows = [_tx(None, credit="100.005")]
     verify_totals(rows, total_credit=Decimal("100.00"), total_debit=Decimal("0"))
+
+
+def _result(
+    rows: list[Transaction],
+    *,
+    totals: tuple[str, str] | None = None,
+    row_wise_reconcilable: bool = True,
+) -> ParseResult:
+    return ParseResult(
+        transactions=rows,
+        total_credit=Decimal(totals[0]) if totals else None,
+        total_debit=Decimal(totals[1]) if totals else None,
+        format_version="synthetic",
+        row_wise_reconcilable=row_wise_reconcilable,
+    )
+
+
+def test_reconcile_result_runs_both_checks() -> None:
+    rows = [_tx("1000.00"), _tx("800.00", debit="200.00")]
+    report = reconcile_result(_result(rows, totals=("0", "200.00"))).reconciliation
+    assert report == ReconciliationReport(totals="passed", row_wise="passed")
+
+
+def test_reconcile_result_row_wise_not_available_without_balances() -> None:
+    rows = [_tx(None, credit="100.00"), _tx(None, debit="40.00")]
+    report = reconcile_result(_result(rows, totals=("100.00", "40.00"))).reconciliation
+    assert report == ReconciliationReport(totals="passed", row_wise="not_available")
+
+
+def test_reconcile_result_row_wise_disabled_by_parser() -> None:
+    # Balances present but broken: an opted-out parser must not run row-wise.
+    rows = [_tx("1000.00"), _tx("1.00", debit="200.00")]
+    report = reconcile_result(
+        _result(rows, totals=("0", "200.00"), row_wise_reconcilable=False)
+    ).reconciliation
+    assert report == ReconciliationReport(totals="passed", row_wise="disabled")
+
+
+def test_reconcile_result_totals_not_available_without_header() -> None:
+    rows = [_tx("1000.00"), _tx("800.00", debit="200.00")]
+    report = reconcile_result(_result(rows)).reconciliation
+    assert report == ReconciliationReport(totals="not_available", row_wise="passed")
+
+
+def test_reconcile_result_raises_without_evidence() -> None:
+    rows = [_tx(None, credit="100.00")]
+    with pytest.raises(ReconciliationError, match="no reconciliation evidence"):
+        reconcile_result(_result(rows))
+
+
+def test_reconcile_result_raises_on_row_break() -> None:
+    rows = [_tx("1000.00"), _tx("500.00", debit="100.00")]
+    with pytest.raises(ReconciliationError) as info:
+        reconcile_result(_result(rows, totals=("0", "100.00")))
+    assert info.value.row_index == 1
+
+
+def test_reconcile_result_raises_on_totals_break() -> None:
+    rows = [_tx(None, credit="100.00")]
+    with pytest.raises(ReconciliationError, match="credits"):
+        reconcile_result(_result(rows, totals=("999.00", "0")))
+
+
+@pytest.mark.parametrize(("bank", "path"), fixture_params())
+def test_reconcile_result_per_fixture(bank: str, path: Path) -> None:
+    assert reconcile_result(parsed(bank, path)).reconciliation == RECONCILIATION[bank]
