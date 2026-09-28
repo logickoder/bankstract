@@ -56,8 +56,9 @@ jobs:
       #   2. COMMIT TYPE filter (Conventional Commits):
       #        feat        → minor bump on collision
       #        fix / perf  → patch bump on collision
+      #        `!` suffix (breaking) is ignored: feat! releases like feat
       #        chore / docs / test / refactor / ci / style / build / revert → skip
-      #        anything else → fail loud (forces explicit type)
+      #        anything else → skip with a warning (forces explicit type)
       #
       # workflow_dispatch bypasses both filters so manual runs always publish.
       - name: Detect changed files
@@ -104,6 +105,8 @@ jobs:
           echo "Commit subject: $subject"
 
           prefix="${subject%%[:(]*}"
+          # `feat!:` marks a breaking change. Strip the `!` so it still releases.
+          prefix="${prefix%!}"
           case "$prefix" in
             feat)
               echo "type=minor" >> "$GITHUB_OUTPUT" ;;
