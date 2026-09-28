@@ -14,7 +14,7 @@ def test_redactor_registered() -> None:
 def _synthetic_zenith_pdf(path: Path) -> Path:
     """Minimal Zenith-shape statement using deliberately-fake identifiers.
 
-    No real person, business, or address may appear here — see CLAUDE.md
+    No real person, business, or address may appear here — see AGENTS.md
     directive 3.
     """
     doc: Any = new_doc()

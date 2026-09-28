@@ -1,4 +1,4 @@
-# bankstract - Claude Operating Charter
+# bankstract - Agent Operating Charter
 
 You are working inside `bankstract`, a public Python library that converts Nigerian bank PDF statements into structured CSV via a per-bank parser plugin system.
 

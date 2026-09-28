@@ -178,7 +178,7 @@ uv sync --all-extras       # create .venv, install deps + extras from uv.lock
 uv run pre-commit install  # one-time: enable the pre-commit hook
 uv run pytest              # run tests
 uv run ruff check src tests
-uv run pyright src tests   # strict type check (see CLAUDE.md directive 8)
+uv run pyright src tests   # strict type check (see AGENTS.md directive 8)
 uv run bankstract list     # invoke CLI
 ```
 

@@ -24,7 +24,7 @@ def test_shape_preserve_pattern() -> None:
 def _synthetic_fbn_pdf(path: Path) -> Path:
     """Minimal FBN-shape statement using fake placeholder identifiers.
 
-    No real person, business, or address may appear here — see CLAUDE.md
+    No real person, business, or address may appear here — see AGENTS.md
     directive 3.
     """
     doc: Any = new_doc()

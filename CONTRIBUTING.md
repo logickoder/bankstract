@@ -1,6 +1,6 @@
 # Contributing
 
-bankstract takes parsers, redactors, bug fixes, docs. CLAUDE.md is the operating charter. Read it before opening a PR. Highlights below.
+bankstract takes parsers, redactors, bug fixes, docs. AGENTS.md is the operating charter. Read it before opening a PR. Highlights below.
 
 ## Gate
 
@@ -51,7 +51,7 @@ _FIXTURES = [
 
 ## Fixture privacy
 
-CLAUDE.md directive 3 is load-bearing. No real personal names, business names, addresses, phone digits, BVN, or account numbers may appear inline in source, tests, or committed fixtures. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`). Raw statements live only in gitignored `_local/`.
+AGENTS.md directive 3 is load-bearing. No real personal names, business names, addresses, phone digits, BVN, or account numbers may appear inline in source, tests, or committed fixtures. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`). Raw statements live only in gitignored `_local/`.
 
 ## Reporting issues
 

@@ -120,7 +120,7 @@ def test_parses_redacted_fixture() -> None:
     for tx in result.transactions:
         assert tx.debit > 0 or tx.credit > 0
 
-    # Load-bearing invariant (CLAUDE.md directive 2): parsed sums must equal
+    # Load-bearing invariant (AGENTS.md directive 2): parsed sums must equal
     # the totals printed in the statement header.
     assert reconcile_result(result).reconciliation == RECONCILIATION["palmpay"]
 
