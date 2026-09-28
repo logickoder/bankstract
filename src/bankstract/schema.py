@@ -185,6 +185,19 @@ class LayoutDriftError(ParseError):
 
 
 class ReconciliationError(Exception):
-    def __init__(self, message: str, *, row_index: int | None = None) -> None:
+    """The statement parsed but its numbers don't add up. Not a ParseError:
+    callers (the CLI among them) handle the two differently."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        row_index: int | None = None,
+        bank: str | None = None,
+        format_version: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.row_index = row_index
+        # Stamped by reconcile_result from the result it checked.
+        self.bank = bank
+        self.format_version = format_version

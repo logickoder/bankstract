@@ -161,7 +161,9 @@ def _run(
             f"parse error ({getattr(exc, 'format_version', 'unknown')}): {exc}"
         ) from exc
     except ReconciliationError as exc:
-        raise click.ClickException(f"reconciliation failed: {exc}") from exc
+        raise click.ClickException(
+            f"reconciliation failed ({exc.format_version or 'unknown'}): {exc}"
+        ) from exc
 
     _write_bytes(data, output)
     _info(f"wrote {len(data)} bytes -> {output}", stdout_used=stdout_used)

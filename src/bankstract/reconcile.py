@@ -97,31 +97,40 @@ def reconcile_result(
     `progress_callback` receives `reconcile` then `done`. Pass it after a
     separate `parse()` call, whose scope has closed."""
     with progress_scope(progress_callback):
-        totals: CheckStatus = "not_available"
-        if result.total_credit is not None and result.total_debit is not None:
-            verify_totals(
-                result.transactions,
-                total_credit=result.total_credit,
-                total_debit=result.total_debit,
-            )
-            totals = "passed"
-
-        row_wise: CheckStatus
-        if result.row_wise_disabled is not None:
-            row_wise = "disabled"
-        elif reconcile(result.transactions):
-            row_wise = "passed"
-        else:
-            row_wise = "not_available"
-
-        if totals != "passed" and row_wise != "passed":
-            raise ReconciliationError(
-                "no reconciliation evidence. Statement has neither header totals "
-                "nor a checkable balance column. Report the statement layout."
-            )
+        try:
+            report = _checks(result)
+        except ReconciliationError as exc:
+            exc.bank = result.bank
+            exc.format_version = result.format_version
+            raise
         emit("reconcile", 1, 1)
-        report = ReconciliationReport(
-            totals=totals, row_wise=row_wise, row_wise_reason=result.row_wise_disabled
-        )
         values: dict[str, Any] = {**vars(result), "reconciliation": report}
         return ReconciledParseResult(**values)
+
+
+def _checks(result: ParseResult) -> ReconciliationReport:
+    totals: CheckStatus = "not_available"
+    if result.total_credit is not None and result.total_debit is not None:
+        verify_totals(
+            result.transactions,
+            total_credit=result.total_credit,
+            total_debit=result.total_debit,
+        )
+        totals = "passed"
+
+    row_wise: CheckStatus
+    if result.row_wise_disabled is not None:
+        row_wise = "disabled"
+    elif reconcile(result.transactions):
+        row_wise = "passed"
+    else:
+        row_wise = "not_available"
+
+    if totals != "passed" and row_wise != "passed":
+        raise ReconciliationError(
+            "no reconciliation evidence. Statement has neither header totals "
+            "nor a checkable balance column. Report the statement layout."
+        )
+    return ReconciliationReport(
+        totals=totals, row_wise=row_wise, row_wise_reason=result.row_wise_disabled
+    )

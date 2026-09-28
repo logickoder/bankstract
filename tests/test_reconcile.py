@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -6,10 +7,12 @@ import pytest
 
 from bankstract.reconcile import reconcile, reconcile_result, verify_totals
 from bankstract.schema import (
+    ParseError,
     ParseResult,
     ReconciledParseResult,
     ReconciliationError,
     ReconciliationReport,
+    StatementMetadata,
     Transaction,
 )
 
@@ -174,3 +177,24 @@ def test_reconcile_result_returns_reconciled_type() -> None:
 def test_reconciled_result_requires_report() -> None:
     with pytest.raises(ValueError, match="needs a reconciliation report"):
         ReconciledParseResult(transactions=[], format_version="synthetic")
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        _result([_tx(None, credit="100.00")], totals=("999.00", "0")),
+        _result([_tx("1000.00"), _tx("500.00", debit="100.00")]),
+        _result([_tx(None, credit="100.00")]),
+    ],
+    ids=["totals", "row-wise", "no-evidence"],
+)
+def test_reconciliation_error_names_bank_and_format(result: ParseResult) -> None:
+    tagged = replace(result, metadata=StatementMetadata(bank="acme"))
+    with pytest.raises(ReconciliationError) as info:
+        reconcile_result(tagged)
+    assert info.value.bank == "acme"
+    assert info.value.format_version == "synthetic"
+
+
+def test_reconciliation_error_is_not_a_parse_error() -> None:
+    assert not issubclass(ReconciliationError, ParseError)

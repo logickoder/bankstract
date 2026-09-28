@@ -142,7 +142,7 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | `EncryptedSourceError`| exception     | source PDF / XLSX is password-protected             |
 | `EmptyStatementError` | exception     | parser ran clean, zero rows. `.marker_coverage` field. |
 | `LayoutDriftError`    | exception     | anchor missing / column shifted post-detect         |
-| `ReconciliationError` | exception     | invariant break                                     |
+| `ReconciliationError` | exception     | invariant break. `.bank`, `.format_version`, `.row_index`. Not a `ParseError`. |
 | `ProgressEvent`       | dataclass     | `stage: str`, `current: int`, `total: int`          |
 | `ProgressCallback`    | type alias    | `Callable[[ProgressEvent], None]`                   |
 | `throttle`            | function      | `throttle(callback, *, min_interval_ms=100) -> ProgressCallback` |
