@@ -1,53 +1,21 @@
 # bankstract - Agent Operating Charter
 
-You are working inside `bankstract`, a public Python library that converts Nigerian bank PDF statements into structured CSV via a per-bank parser plugin system.
+You are working inside `bankstract`, a public Python library that converts Nigerian bank PDF and XLSX statements into structured CSV and JSON via a per-bank parser plugin system.
 
 Owner: Jeffery Orazulike (github.com/logickoder).
 
----
-
 ## CORE DIRECTIVES
 
-### 1. ZERO HALLUCINATION ON PARSER LOGIC
-Never invent regex patterns, table coordinates, or column orders for a bank format you haven't read. Open the fixture PDF. Run `pdfplumber` interactively. Confirm the structure. Then write the parser. Guessed parsers silently drop or misclassify rows. Financial data has no margin for that.
+Short form. Each links to the full rule in `docs/rules/`. Read the linked rule before working in its area.
 
-### 2. RECONCILIATION INVARIANT IS LOAD-BEARING
-Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance`. If a parser change breaks reconciliation on any fixture, the parser is wrong, not the invariant. Never weaken `reconcile.py` to make tests pass.
-
-### 3. FIXTURE PRIVACY IS NON-NEGOTIABLE
-Sample PDFs in `tests/<bank>/fixtures/` contain real account data. Before any fixture lands in git:
-- Account number -> `XXXXXXXXXX`
-- Name -> `Test User`
-- Address -> `Test Address`
-- Phone / email -> scrubbed
-- BVN -> never present
-
-If an unredacted PDF is staged, halt and warn. Run `uv run bankstract redact <bank> <raw> <out>` to scrub it, or regenerate the fixture from a synthetic source.
-
-The same rule extends to **all source and test code**. No real personal names, business names, addresses, phone digits, or account numbers appear inline. Not in test fixtures, not in assertion strings, not in synthetic-PDF generators. Use obviously-fake placeholders (`FOO`, `BAR`, `ACME`, `QUUX`, `Placeholder Lane`, `1111 2222`, etc.). Real values live only in `tests/<bank>/fixtures/_local/` (gitignored).
-
-### 4. HUMAN IN THE LOOP
-Do not run `git commit`, `git push`, `git tag`, or any publish operation without explicit owner command in the current turn. Edit, save, halt. Owner reviews diffs manually.
-
-### 5. SURGICAL EDITS
-Modify the specific function, parser, or test under request. Don't touch unrelated files, rewrite working parsers to "improve" them, or refactor across modules without an explicit refactor task. Each bank parser is independently owned. Touching one to "fix" another is forbidden.
-
-### 6. NO BOILERPLATE COMMENTS
-No `# Parse the PDF` above `parse_pdf()`. No docstrings on obvious methods. Comments only where non-obvious algorithmic choices, format quirks, or regex constraints need explanation. A comment earns its place when removing it would confuse a future reader:
-
-```python
-# PalmPay statements use \r\n between transaction blocks but \n within
-# narration lines. Splitting on \n alone merges adjacent blocks.
-blocks = raw.split("\r\n\r\n")
-```
-
-### 7. TONE
-Direct, technical, honest. No "I've gone ahead and...", no "Let me know if...". Report the change, the file, the test status.
-
-### 8. PYRIGHT STRICT IS GREEN OR BUST
-All code under `src/` and `tests/` must pass `uv run pyright` with the strict-mode config in `pyproject.toml` (`[tool.pyright] typeCheckingMode = "strict"`). Zero errors, zero warnings. Untyped third-party libraries (pymupdf, pdfplumber, openpyxl) get wrapped at the boundary in `_pymupdf.py` / `_pdfplumber.py` / `_xlsx.py`. Downstream code stays fully typed. If you must touch an untyped library directly, annotate the bridging call with `cast(Any, ...)` or a local `# type: ignore[...]` comment. Never a project-wide rule relax.
-
----
+1. **Zero hallucination on parser logic.** Read the fixture before writing a regex or column map. [parsers](docs/rules/parsers.md)
+2. **Reconciliation is load-bearing.** A broken fixture means the parser is wrong. Never weaken `reconcile.py`. [reconciliation](docs/rules/reconciliation.md)
+3. **Fixture privacy is non-negotiable.** No real PII in fixtures, source, or tests. [fixture-privacy](docs/rules/fixture-privacy.md)
+4. **Human in the loop.** No commit, push, tag, or publish without an explicit owner command. [workflow](docs/rules/workflow.md)
+5. **Surgical edits.** Change only what was asked. Each parser is independently owned. [workflow](docs/rules/workflow.md)
+6. **No boilerplate comments.** Comment only what would confuse a future reader. [code-style](docs/rules/code-style.md)
+7. **Tone.** Direct, technical, honest. [voice](docs/rules/voice.md), [workflow](docs/rules/workflow.md)
+8. **Pyright strict is green or bust.** Zero errors, zero warnings, no project-wide relaxing. [code-style](docs/rules/code-style.md)
 
 ## REPO LAYOUT
 
@@ -103,20 +71,9 @@ bankstract/
 │       └── fixtures/
 │           ├── sample.pdf     redacted PDF. Committed.
 │           └── _local/        gitignored. Drop raw PDFs here for dev.
-└── .github/workflows/ci.yml
+├── docs/rules/                agent rules, one topic per file
+└── .github/workflows/         ci.yml + publish.yml (release gate)
 ```
-
-## STACK + CONVENTIONS
-
-- Python 3.11+ (use `match`, `Self`, `Unpack` where applicable)
-- All public functions and class attributes are type-hinted. Pyright strict passes clean.
-- Money is `decimal.Decimal`, never `float`
-- Dates are `datetime.datetime` (full timestamp), never `str` past the parser boundary. Banks without a time component pad with `00:00:00`.
-- Currency stripped at parse time. The symbol is never re-emitted in stored data.
-- `pdfplumber` primary. `camelot-py` lattice fallback. `pytesseract` OCR last.
-- `pymupdf` only at the redactor / facade boundary. Never reach for it from parser code.
-- `click` for CLI. No `argparse`.
-- `pydantic` v2 for the `Transaction` record. `dataclass` for `ParseResult` / `RedactReport`.
 
 ## COMMANDS
 
@@ -133,7 +90,7 @@ uv run pre-commit install
 uv add <pkg>
 uv add --dev <pkg>
 
-# lint + types (MUST pass clean. See directive 8.)
+# lint + types (MUST pass clean)
 uv run ruff check src tests
 uv run ruff format src tests
 uv run pyright src tests
@@ -160,45 +117,6 @@ scripts/bump-version.sh 0.3.0           # set exact version
 uv build
 ```
 
-## PARSER CONTRACT
-
-Every parser implements `Parser` ABC from `parsers/base.py`:
-
-```python
-class Parser(ABC):
-    bank: str  # registry key. Lowercase, no spaces.
-    supported_formats: tuple[Format, ...] = ("pdf",)  # add "xlsx" when supported
-
-    @abstractmethod
-    def detect(self, source: Source) -> bool: ...
-
-    @abstractmethod
-    def parse(self, source: Source) -> ParseResult: ...
-
-    def detect_confidence(self, source: Source) -> float:
-        return 1.0 if self.detect(source) else 0.0  # override with marker fraction
-```
-
-`Source = Path | IO[bytes]`. `ParseResult` (frozen) carries the transaction list plus optional `total_credit` / `total_debit` read from the statement header + `StatementMetadata` + `format_version` + `row_wise_reconcilable` opt-out + `reconciliation` (set by `reconcile_result` only). Parsers whose statements omit a per-row balance column MUST populate the totals. Multi-format parsers (e.g. OPay) dispatch internally on `sniff_format(source)` and emit per-format `format_version` constants (`opay-pdf-2026-01` vs `opay-xlsx-2026-01`) so drift detection works per format independently.
-
-Rules:
-- `detect()` is cheap. Read first page (PDF) or sheet names (XLSX), match header string or column signature. No full parse.
-- `parse()` raises `ParseError` (carrying `format_version`) on layout mismatch. No silent return of `[]`.
-- Set `Transaction.has_time=True` only on rows that print a time.
-- Unparseable mid-document blocks land in a `.log` sidecar. Never silently dropped. Add a shared helper in `writers/` when the first parser needs one. No speculative helper today.
-- Each parser self-registers in `parsers/__init__.py` via import side-effect. No central registry edit needed.
-- Share, don't duplicate. Amount/account helpers live in `parsers/_money.py` (`parse_amount`, `parse_amount_optional`, `mask_account_number`). Columnar walkers in `_columnar.py`. pdfplumber/openpyxl boundaries in `_common.py` / `_xlsx.py`.
-- Progress: parsers fire `emit("walk_page", i, n_pages)` once per page in the outer parse loop. Import `emit` from `parsers/_common` (re-exported), never from `bankstract._progress` directly. Walkers in `_columnar.walk_rows` already emit `walk_page`. Parsers that delegate to it get progress free. `extract_page` fires inside `extract_words_per_page`. Never re-emit from a parser.
-
-## TESTING
-
-- Every parser ships with at least one anonymized fixture under `tests/<bank>/fixtures/sample.pdf`
-- Reconciliation invariant tested for every fixture in `test_reconcile.py` (row-wise + totals-based). Register new banks in `tests/_fixtures.py`
-- Format-version detection tested against multiple versions when more than one is available
-- Each parser has a sibling `tests/<bank>/test_redactor.py` covering the redactor (synthetic-PDF round trip + PII leak sweep)
-- No mocking of `pdfplumber` / `camelot` / `pytesseract` / `openpyxl`. Tests run against real fixture PDFs/XLSX.
-- Every parser/metadata test parametrizes over both `tests/<bank>/fixtures/sample.pdf` (committed, redacted) AND `tests/<bank>/fixtures/_local/statement.pdf` (gitignored, raw) when present. Skip the local case via `pytest.mark.skipif(not _local.exists())` so CI stays green without raw fixtures. The raw fixture catches metadata-regex regressions that placeholder values silently pass.
-
 ## OUT OF SCOPE - DO NOT ADD
 
 - Category inference (rule-based or ML). Downstream concern.
@@ -210,23 +128,16 @@ Rules:
 
 If asked to add any of the above, push back. They aren't part of bankstract.
 
-## VOICE (README, docstrings, comments, issue templates, commits, errors)
+## RULES
 
-Owner spec lives in memory at `voice-public-copy`. Highlights:
+One topic per file in `docs/rules/`, the single source of truth. `.claude/rules/` holds thin wrappers (frontmatter plus an `@` import) that Claude Code loads by path. Edit the source in `docs/rules/`, never the wrapper.
 
-- Period-separated short hits. Multiple 3-7 word sentences beat one long sentence.
-- **No em-dashes anywhere.** Universal rule. Use periods, commas, parens, colons. Two sentences beats one with an aside.
-- No marketing language. Banned: seamless, powerful, robust, blazingly fast, intelligent, smart, AI-powered, agentic, supercharged, innovative, revolutionary, game-changer, effortless, world-class, industry-leading, leverage (verb), synergy.
-- No apology theater. Banned: "We're sorry", "Oops", "Uh oh", "Don't worry", "Don't panic".
-- No emojis in body copy.
-- Lowercase bank names: palmpay, fbn, opay, zenith.
-- `logickoder` always lowercase. Link to github.com/logickoder in public copy.
-- Active voice. No hedging (might, perhaps, we think, potentially). Concrete numbers + names + facts when available.
-- Errors follow `<what>. <why>. <do this>.` Three short sentences.
-
-## ASSISTANT RESPONSE FORMAT
-
-- State change: terse confirmation with file + function name
-- Diagnosis: root cause in one to two sentences, then the fix
-- Refusal: cite the directive being upheld (e.g. "fixture not read. Read tests/fbn/fixtures/sample.pdf first")
-- Never apologize. Acknowledge errors technically and move on.
+| Rule | Covers |
+|---|---|
+| [parsers](docs/rules/parsers.md) | read-before-write, parser contract, shared helpers, progress events |
+| [reconciliation](docs/rules/reconciliation.md) | the invariant, `reconcile_result`, opt-out rules |
+| [fixture-privacy](docs/rules/fixture-privacy.md) | redaction, placeholders, `_local/` |
+| [testing](docs/rules/testing.md) | fixture registration, dual-fixture rule, no mocking |
+| [code-style](docs/rules/code-style.md) | pyright strict, comments, stack conventions |
+| [workflow](docs/rules/workflow.md) | human in the loop, surgical edits, commits, release gate, response format |
+| [voice](docs/rules/voice.md) | copy, comments, commits, errors |
