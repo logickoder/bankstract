@@ -2,6 +2,12 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## 0.17.1 - 2026-09-28
+
+### Fixed
+
+- `ReconciliationError` carries `bank` and `format_version`, filled by `reconcile_result` from the result it checked. Reconciliation failures were the one engine error consumers couldn't attribute to a parser or format. It stays separate from `ParseError`: the statement parsed, its numbers didn't add up.
+
 ## 0.17.0 - 2026-09-28
 
 ### Added

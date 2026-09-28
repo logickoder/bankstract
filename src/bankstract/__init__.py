@@ -5,7 +5,7 @@ Public API (semver-stable): everything re-exported below. Anything
 imported from a submodule prefixed with `_` is internal.
 """
 
-__version__ = "0.17.0"
+__version__ = "0.17.1"
 
 from ._api import (
     convert,
