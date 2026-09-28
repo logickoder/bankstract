@@ -78,6 +78,12 @@ class ParseResult:
     # None until `reconcile_result` returns a checked copy. Parsers never set it.
     reconciliation: ReconciliationReport | None = None
 
+    @property
+    def bank(self) -> str | None:
+        """The parser that matched. `parse()` always fills `metadata.bank`,
+        the one stored copy. None only on a result built by hand."""
+        return self.metadata.bank if self.metadata else None
+
 
 @dataclass
 class RedactReport:
@@ -110,9 +116,18 @@ class ParseError(Exception):
     comment justifying why no subclass fits; an AST audit test in the suite
     fails the PR otherwise."""
 
-    def __init__(self, message: str, *, format_version: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        format_version: str | None = None,
+        bank: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.format_version = format_version
+        # Filled in by the engine when the failure came from a matched
+        # parser or redactor. None when detection itself failed.
+        self.bank = bank
 
 
 class EncryptedSourceError(ParseError):

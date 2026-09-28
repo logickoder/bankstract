@@ -8,6 +8,7 @@ change in any release.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from pathlib import Path
 from typing import TypeVar
 
@@ -19,7 +20,7 @@ from .reconcile import reconcile_result
 from .redactors import all_redactors
 from .redactors import get as get_redactor
 from .redactors.base import Redactor
-from .schema import OutputFormat, ParseError, ParseResult, RedactResult
+from .schema import OutputFormat, ParseError, ParseResult, RedactResult, StatementMetadata
 from .writers.serialize import check_format, serialize
 
 # Lib API accepts a string path as a friendly shorthand on top of the
@@ -113,10 +114,12 @@ def _dispatch(
     rewind(src)
     emit("open", 1, 1)
     try:
-        result = worker(target, src)
+        return worker(target, src)
+    except ParseError as exc:
+        exc.bank = target.bank
+        raise
     except ValueError as exc:
-        raise ParseError(str(exc)) from exc
-    return result
+        raise ParseError(str(exc), bank=target.bank) from exc
 
 
 def parse(
@@ -140,7 +143,10 @@ def parse(
 
     def _parse_call(parser: Parser | Redactor, src: Source) -> ParseResult:
         assert isinstance(parser, Parser)  # _dispatch contract: registry returns Parser
-        return parser.parse(src)
+        result = parser.parse(src)
+        # metadata.bank is the one stored copy; the engine guarantees it.
+        meta = replace(result.metadata or StatementMetadata(), bank=parser.bank)
+        return replace(result, metadata=meta)
 
     with progress_scope(progress_callback):
         return _dispatch(

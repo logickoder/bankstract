@@ -44,3 +44,8 @@ def test_parser_leaves_reconciliation_unset(bank: str, path: Path) -> None:
     # Only reconcile_result may set it. A parser-set value would make the JSON
     # claim checks that never ran.
     assert parsed(bank, path).reconciliation is None
+
+
+@pytest.mark.parametrize(("bank", "path"), fixture_params())
+def test_parse_sets_matched_bank(bank: str, path: Path) -> None:
+    assert parsed(bank, path).bank == bank

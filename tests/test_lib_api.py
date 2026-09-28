@@ -103,6 +103,18 @@ def test_serialize_matches_convert(fmt: OutputFormat) -> None:
     )
 
 
+def test_parse_sets_bank_when_detected() -> None:
+    assert bankstract.parse(ZENITH_SAMPLE).bank == "zenith"
+
+
+def test_parse_error_carries_matched_bank() -> None:
+    # Forcing the wrong parser fails inside a matched parser, so the error
+    # names it.
+    with pytest.raises(bankstract.ParseError) as info:
+        bankstract.parse(ZENITH_SAMPLE, bank="palmpay")
+    assert info.value.bank == "palmpay"
+
+
 def test_serialize_unknown_format_raises() -> None:
     result = parsed("zenith", ZENITH_SAMPLE)
     with pytest.raises(ValueError, match="unsupported output format"):
