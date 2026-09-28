@@ -23,7 +23,7 @@ class Parser(ABC):
         return 1.0 if self.detect(source) else 0.0  # override with marker fraction
 ```
 
-`Source = Path | IO[bytes]`. `ParseResult` is frozen. It carries the transactions, optional header `total_credit` / `total_debit`, `StatementMetadata`, `format_version`, the `row_wise_reconcilable` opt-out, and `reconciliation`. Parsers never set `reconciliation`. Multi-format parsers (opay) dispatch on `sniff_format(source)` and emit one `format_version` per format (`opay-pdf-2026-01`, `opay-xlsx-2026-01`) so drift is tracked per format.
+`Source = Path | IO[bytes]`. `ParseResult` is frozen. It carries the transactions, optional header `total_credit` / `total_debit`, `StatementMetadata`, `format_version`, the `row_wise_disabled` opt-out, and `reconciliation`. The engine fills `metadata.bank` from the matched parser, and `result.bank` reads it. Parsers never set `reconciliation`. Multi-format parsers (opay) dispatch on `sniff_format(source)` and emit one `format_version` per format (`opay-pdf-2026-01`, `opay-xlsx-2026-01`) so drift is tracked per format.
 
 ## Rules
 

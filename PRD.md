@@ -118,6 +118,7 @@ CheckStatus = Literal["passed", "not_available", "disabled"]
 class ReconciliationReport:
     totals: CheckStatus
     row_wise: CheckStatus
+    row_wise_reason: str | None = None    # parser's reason when row_wise is "disabled"
 
 
 @dataclass(frozen=True)
@@ -127,7 +128,7 @@ class ParseResult:
     total_debit: Decimal | None = None
     format_version: str | None = None
     metadata: StatementMetadata | None = None
-    row_wise_reconcilable: bool = True    # False when balances are present but don't chain (opay)
+    row_wise_disabled: str | None = None  # reason, when balances are present but don't chain (opay)
     reconciliation: ReconciliationReport | None = None  # set only by reconcile_result
 ```
 
@@ -172,6 +173,7 @@ bankstract/
 │       ├── _xlsx.py           typed facade over openpyxl + sniff_format()
 │       ├── writers/csv.py     write_csv(transactions, target: Path | TextIO)
 │       ├── writers/json.py    write_json(result, target). Full ParseResult shape.
+│       ├── writers/serialize.py  serialize(result, format) -> canonical bytes
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
 │       │   ├── base.py        Parser ABC + supported_formats

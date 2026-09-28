@@ -56,21 +56,27 @@ result.metadata.statement_period_start
 result.transactions[0].balance
 result.transactions[0].has_time       # False when the statement prints date only
 result.format_version
+result.bank                           # the parser that matched, passed or detected
 
 # parse() never reconciles. reconcile_result() returns a checked copy.
-result = bankstract.reconcile_result(result)   # progress_callback= to see the reconcile stage
-result.reconciliation.totals          # 'passed' | 'not_available'
-result.reconciliation.row_wise        # 'passed' | 'not_available' | 'disabled'
+checked = bankstract.reconcile_result(result)  # progress_callback= to see the reconcile stage
+checked.report.totals                 # 'passed' | 'not_available'
+checked.report.row_wise               # 'passed' | 'not_available' | 'disabled'
+checked.report.row_wise_reason        # why, when disabled
 
-# Parse + serialize in one call. Byte-identical to the CLI's output.
+# Canonical bytes, identical to the CLI. One path for both formats.
+csv_bytes  = bankstract.serialize(checked, "csv")
+json_bytes = bankstract.serialize(checked, "json")
+
+# Or all three steps in one call.
 csv_bytes  = bankstract.convert("statement.pdf")                     # default format="csv"
 json_bytes = bankstract.convert(fp, format="json", bank="opay")      # explicit
 debug_bytes = bankstract.convert(fp, reconcile=False)                # skip invariant
 
-# Low-level writers. Use when you already hold a ParseResult.
+# Low-level writers, to a path or text stream.
 from pathlib import Path
-bankstract.write_csv(result.transactions, Path("out.csv"))
-bankstract.write_json(result, Path("out.json"))   # includes "reconciliation" once checked
+bankstract.write_csv(checked.transactions, Path("out.csv"))
+bankstract.write_json(checked, Path("out.json"))
 
 # Redact PII in-memory (no disk write). `.data` carries the redacted file bytes.
 redacted = bankstract.redact("statement.pdf")         # auto-detect bank
@@ -112,7 +118,8 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | --------------------- | ------------- | --------------------------------------------------- |
 | `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
 | `convert`             | function      | `convert(source, *, format="csv", bank=None, reconcile=True, progress_callback=None) -> bytes`. Byte-identical to CLI. |
-| `reconcile_result`    | function      | `reconcile_result(result, *, progress_callback=None) -> ParseResult`. Returns a copy with `.reconciliation` set. Raises `ReconciliationError` on a break or when no check can run. |
+| `reconcile_result`    | function      | `reconcile_result(result, *, progress_callback=None) -> ReconciledParseResult`. Raises `ReconciliationError` on a break or when no check can run. |
+| `serialize`           | function      | `serialize(result, format: OutputFormat) -> bytes`. The canonical bytes `convert` and the CLI emit. |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
 | `list_parsers`        | function      | sorted bank names (parsers)                         |
 | `write_csv`           | function      | `write_csv(transactions, target: Path \| TextIO) -> int` |
@@ -123,13 +130,15 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | `Redactor`            | ABC           | base class for new redactors                        |
 | `Transaction`         | pydantic      | row schema. `has_time` flags a real (not padded) time. |
 | `StatementMetadata`   | dataclass     | account holder / period / opening + closing balance |
-| `ParseResult`         | dataclass     | `transactions[]`, totals, `format_version`, metadata, `reconciliation` |
-| `ReconciliationReport`| dataclass     | `totals`, `row_wise`. Each a `CheckStatus`.         |
+| `ParseResult`         | dataclass     | `transactions[]`, totals, `format_version`, metadata, `bank`, `row_wise_disabled`, `reconciliation` |
+| `ReconciledParseResult` | dataclass   | `ParseResult` with a guaranteed report. `.report` is never `None`. |
+| `ReconciliationReport`| dataclass     | `totals`, `row_wise` (each a `CheckStatus`), `row_wise_reason` |
 | `CheckStatus`         | type alias    | `Literal["passed", "not_available", "disabled"]`    |
 | `RedactResult`        | dataclass     | `data: bytes`, `bank`, `format`, `format_version`, `report` |
 | `RedactReport`        | dataclass     | `bank`, `pages`, `redactions`, `audit`              |
-| `Format`              | type alias    | `Literal["pdf", "xlsx"]`                            |
-| `ParseError`          | exception     | base. Undiagnosable parse failure.                  |
+| `Format`              | type alias    | `Literal["pdf", "xlsx"]`. Input formats.            |
+| `OutputFormat`        | type alias    | `Literal["csv", "json"]`. Output formats.           |
+| `ParseError`          | exception     | base. Undiagnosable parse failure. `.bank` names the matched parser. |
 | `EncryptedSourceError`| exception     | source PDF / XLSX is password-protected             |
 | `EmptyStatementError` | exception     | parser ran clean, zero rows. `.marker_coverage` field. |
 | `LayoutDriftError`    | exception     | anchor missing / column shifted post-detect         |
@@ -148,7 +157,7 @@ Two checks. `reconcile_result()` runs each one the statement has evidence for. T
 - **Row-wise** (banks that print a running balance): `prev.balance ± debit/credit == curr.balance`. Mismatch raises `ReconciliationError` with the row index.
 - **Totals-based** (statements with header totals): the sum of parsed credits/debits must equal the printed `Total Money In` / `Total Money Out`.
 
-Both catch silently-dropped rows. The report says what ran: `passed`, `not_available` (no evidence on the statement) or `disabled` (parser opt-out).
+Both catch silently-dropped rows. The report says what ran: `passed`, `not_available` (no evidence on the statement) or `disabled` (parser opt-out, with `row_wise_reason`).
 
 | Bank    | `totals`        | `row_wise`      |
 | ------- | --------------- | --------------- |

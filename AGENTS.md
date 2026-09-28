@@ -42,7 +42,8 @@ bankstract/
 │       ├── _xlsx.py           typed facade over openpyxl + sniff_format(source)
 │       ├── writers/
 │       │   ├── csv.py         write_csv(transactions, target: Path | TextIO)
-│       │   └── json.py        write_json(result, target). Full ParseResult shape.
+│       │   ├── json.py        write_json(result, target). Full ParseResult shape.
+│       │   └── serialize.py   serialize(result, format) -> canonical bytes. Switches on OutputFormat.
 │       ├── parsers/
 │       │   ├── __init__.py    registry (import side-effect)
 │       │   ├── base.py        Parser ABC + supported_formats: tuple[Format, ...]
