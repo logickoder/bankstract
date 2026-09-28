@@ -2,6 +2,23 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## 0.16.0 - 2026-09-27
+
+### Added
+
+- **`reconcile_result(result) -> ParseResult`.** Public reconciliation. Returns a copy with `.reconciliation` set. `convert()` uses it. Before this, `parse()` callers got unverified data.
+- **`ReconciliationReport(totals, row_wise)`**, each `"passed" | "not_available" | "disabled"`. Reports what ran, not what the parser claims.
+- **`Transaction.has_time`.** True only when the statement printed a time. In JSON and CSV.
+- JSON output carries a `reconciliation` block when checked.
+
+### Changed
+
+- **Breaking.** `parse_to` renamed to `convert`. No alias.
+- **Breaking.** `ParseResult` is frozen. Derive changes with `dataclasses.replace`.
+- **Breaking.** CSV gains a trailing `has_time` column.
+- **Breaking.** Reconciliation raises when no check can run, or when the balance column is partly blank. Both used to pass silently.
+- **Breaking.** Missing balances report `row_wise="not_available"` instead of passing silently (palmpay).
+
 ## 0.15.0 - 2026-06-24
 
 ### Added
