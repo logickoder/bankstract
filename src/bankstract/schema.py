@@ -47,7 +47,7 @@ class StatementMetadata:
 
 # passed: the check ran clean. not_available: the statement lacks the evidence
 # (no header totals, or some row has balance=None). disabled: the parser opted
-# out of row-wise via `row_wise_reconcilable=False`. A failed check raises
+# out of row-wise via `row_wise_disabled`. A failed check raises
 # ReconciliationError instead of reporting a status.
 CheckStatus = Literal["passed", "not_available", "disabled"]
 
@@ -56,6 +56,9 @@ CheckStatus = Literal["passed", "not_available", "disabled"]
 class ReconciliationReport:
     totals: CheckStatus
     row_wise: CheckStatus
+    # The parser's reason when row_wise is "disabled". Public copy, shown to
+    # users as is. None otherwise.
+    row_wise_reason: str | None = None
 
 
 # Frozen: reconcile_result returns a checked copy, and tests share cached
@@ -67,14 +70,13 @@ class ParseResult:
     total_debit: Decimal | None = None
     format_version: str | None = None
     metadata: StatementMetadata | None = None
-    # Parser opt-out for balances that are present but don't chain.
-    # Set False when the statement's balance column doesn't satisfy
-    # `prev.balance ± debit/credit == curr.balance` despite carrying per-row
-    # balances (e.g. OPay's wallet column omits implicit OWealth side-effects
-    # that move funds between sub-accounts atomically). Parsers that opt out
-    # MUST populate total_credit/total_debit so verify_totals still catches
+    # Parser opt-out for balances that are present but don't chain
+    # (`prev.balance ± debit/credit != curr.balance` by design). None means
+    # row-wise can run. A string disables it and is the reason, shown to users
+    # through ReconciliationReport.row_wise_reason. Parsers that opt out MUST
+    # populate total_credit/total_debit so verify_totals still catches
     # silently-dropped rows.
-    row_wise_reconcilable: bool = True
+    row_wise_disabled: str | None = None
     # None until `reconcile_result` returns a checked copy. Parsers never set it.
     reconciliation: ReconciliationReport | None = None
 

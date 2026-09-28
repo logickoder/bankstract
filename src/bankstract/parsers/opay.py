@@ -57,6 +57,12 @@ from .base import Parser
 FORMAT_VERSION_PDF = "opay-pdf-2026-01"
 FORMAT_VERSION_XLSX = "opay-xlsx-2026-01"
 WALLET_SHEET = "Wallet Account Transactions"
+# A debit can land with bal=0 prev and bal=0 curr because the matching OWealth
+# withdrawal is logged on a later row. Row-wise would false-fail every pair.
+ROW_WISE_DISABLED = (
+    "OWealth auto-save moves skip the running balance, so rows don't chain. "
+    "Statement totals checked instead."
+)
 
 HEADER_MARKERS: tuple[str, ...] = (
     "Wallet Account",
@@ -373,7 +379,7 @@ def _parse_xlsx(source: Source) -> ParseResult:
             opening_balance=opening,
             closing_balance=closing,
         ),
-        row_wise_reconcilable=False,
+        row_wise_disabled=ROW_WISE_DISABLED,
     )
 
 
@@ -408,13 +414,7 @@ def _parse_pdf(source: Source) -> ParseResult:
         total_debit=total_debit,
         format_version=FORMAT_VERSION_PDF,
         metadata=_extract_metadata(text),
-        # Wallet balance column doesn't reflect OWealth implicit auto-save/
-        # withdrawal side-effects: a debit-to-external can land with bal=0
-        # prev → bal=0 curr because the matching OWealth withdrawal happens
-        # atomically but is logged on a subsequent row. Row-wise reconcile
-        # would false-fail on every such pair; we rely on verify_totals
-        # against the header-printed Total Debit/Credit.
-        row_wise_reconcilable=False,
+        row_wise_disabled=ROW_WISE_DISABLED,
     )
 
 

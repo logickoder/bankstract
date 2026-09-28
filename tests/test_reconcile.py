@@ -100,14 +100,14 @@ def _result(
     rows: list[Transaction],
     *,
     totals: tuple[str, str] | None = None,
-    row_wise_reconcilable: bool = True,
+    row_wise_disabled: str | None = None,
 ) -> ParseResult:
     return ParseResult(
         transactions=rows,
         total_credit=Decimal(totals[0]) if totals else None,
         total_debit=Decimal(totals[1]) if totals else None,
         format_version="synthetic",
-        row_wise_reconcilable=row_wise_reconcilable,
+        row_wise_disabled=row_wise_disabled,
     )
 
 
@@ -124,12 +124,15 @@ def test_reconcile_result_row_wise_not_available_without_balances() -> None:
 
 
 def test_reconcile_result_row_wise_disabled_by_parser() -> None:
-    # Balances present but broken: an opted-out parser must not run row-wise.
+    # Balances present but broken: an opted-out parser must not run row-wise,
+    # and its reason rides on the report.
     rows = [_tx("1000.00"), _tx("1.00", debit="200.00")]
     report = reconcile_result(
-        _result(rows, totals=("0", "200.00"), row_wise_reconcilable=False)
+        _result(rows, totals=("0", "200.00"), row_wise_disabled="FOO balances don't chain.")
     ).reconciliation
-    assert report == ReconciliationReport(totals="passed", row_wise="disabled")
+    assert report == ReconciliationReport(
+        totals="passed", row_wise="disabled", row_wise_reason="FOO balances don't chain."
+    )
 
 
 def test_reconcile_result_totals_not_available_without_header() -> None:

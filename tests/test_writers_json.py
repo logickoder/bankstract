@@ -96,4 +96,8 @@ def test_write_json_includes_reconciliation_report() -> None:
     )
     write_json(result, buf)
     payload = json.loads(buf.getvalue())
-    assert payload["reconciliation"] == {"totals": "passed", "row_wise": "not_available"}
+    assert payload["reconciliation"] == {
+        "totals": "passed",
+        "row_wise": "not_available",
+        "row_wise_reason": None,
+    }

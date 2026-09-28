@@ -107,7 +107,7 @@ def reconcile_result(
             totals = "passed"
 
         row_wise: CheckStatus
-        if not result.row_wise_reconcilable:
+        if result.row_wise_disabled is not None:
             row_wise = "disabled"
         elif reconcile(result.transactions):
             row_wise = "passed"
@@ -120,6 +120,8 @@ def reconcile_result(
                 "nor a checkable balance column. Report the statement layout."
             )
         emit("reconcile", 1, 1)
-        report = ReconciliationReport(totals=totals, row_wise=row_wise)
+        report = ReconciliationReport(
+            totals=totals, row_wise=row_wise, row_wise_reason=result.row_wise_disabled
+        )
         values: dict[str, Any] = {**vars(result), "reconciliation": report}
         return ReconciledParseResult(**values)

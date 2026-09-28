@@ -56,7 +56,6 @@ def test_parses_redacted_fixture() -> None:
 
     # OPay opts out of row-wise reconcile (wallet column hides OWealth
     # auto-save/withdrawal side effects), but totals must reconcile.
-    assert result.row_wise_reconcilable is False
     assert result.total_credit is not None
     assert result.total_debit is not None
     assert reconcile_result(result).reconciliation == RECONCILIATION["opay"]

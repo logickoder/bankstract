@@ -190,7 +190,6 @@ def test_convert_reconcile_false_skips_invariant() -> None:
             ),
         ],
         format_version="synthetic",
-        row_wise_reconcilable=True,
     )
 
     import bankstract._api as api

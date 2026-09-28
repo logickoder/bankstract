@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 import bankstract
+from bankstract.parsers.opay import ROW_WISE_DISABLED as OPAY_ROW_WISE_DISABLED
 from bankstract.schema import ParseResult, ReconciliationReport
 
 TESTS_ROOT = Path(__file__).parent
@@ -24,7 +25,9 @@ RECONCILIATION: dict[str, ReconciliationReport] = {
     "fbn": ReconciliationReport(totals="passed", row_wise="passed"),
     "zenith": ReconciliationReport(totals="not_available", row_wise="passed"),
     "palmpay": ReconciliationReport(totals="passed", row_wise="not_available"),
-    "opay": ReconciliationReport(totals="passed", row_wise="disabled"),
+    "opay": ReconciliationReport(
+        totals="passed", row_wise="disabled", row_wise_reason=OPAY_ROW_WISE_DISABLED
+    ),
 }
 
 
