@@ -7,10 +7,9 @@ change in any release.
 
 from __future__ import annotations
 
-import io
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import TypeVar
 
 from ._progress import ProgressCallback, emit, progress_scope
 from ._source import Source, rewind
@@ -20,9 +19,8 @@ from .reconcile import reconcile_result
 from .redactors import all_redactors
 from .redactors import get as get_redactor
 from .redactors.base import Redactor
-from .schema import ParseError, ParseResult, RedactResult
-from .writers.csv import write_csv
-from .writers.json import write_json
+from .schema import OutputFormat, ParseError, ParseResult, RedactResult
+from .writers.serialize import check_format, serialize
 
 # Lib API accepts a string path as a friendly shorthand on top of the
 # strict Path | IO[bytes] union used internally. Distinct name from
@@ -158,16 +156,14 @@ def parse(
 def convert(
     source: SourceLike,
     *,
-    format: Literal["csv", "json"] = "csv",
+    format: OutputFormat = "csv",
     bank: str | None = None,
     reconcile: bool = True,
     progress_callback: ProgressCallback | None = None,
 ) -> bytes:
-    """Parse `source` and serialize the result to bytes in one call.
-
-    Mirrors the CLI's parse + write code path exactly — same writer, same
-    column order, same encoding. Use this from HTTP handlers, stdout pipes,
-    or anywhere bytes are needed without staging a temp file.
+    """`parse` + `reconcile_result` + `serialize` in one call. Same bytes as
+    the CLI. Callers that need the `ParseResult` too run the three steps
+    themselves.
 
     `format` matches the CLI `-f` flag: "csv" (default) or "json".
     `reconcile=True` (default) runs the reconciliation invariant before
@@ -180,8 +176,7 @@ def convert(
     output `format` raises `ValueError`; a layout mismatch surfaces as
     `ParseError`; an invariant break surfaces as `ReconciliationError`.
     """
-    if format not in ("csv", "json"):
-        raise ValueError(f"unsupported output format: {format!r} (expected 'csv' or 'json')")
+    check_format(format)  # fail before the parse, not after
 
     with progress_scope(progress_callback):
         # Inner parse() gets no callback, so it neither clobbers this scope
@@ -190,17 +185,7 @@ def convert(
 
         if reconcile:
             result = reconcile_result(result)
-
-        buf = io.StringIO()
-        if format == "csv":
-            write_csv(result.transactions, buf)
-        else:
-            write_json(result, buf)
-        # csv.writer emits "\r\n" per RFC 4180; StringIO doesn't translate.
-        # Defensive replace catches any wrapped-stream path that might double-
-        # translate (Windows text mode through a layered writer). Idempotent on
-        # clean input — already-correct bytes pass through untouched.
-        return buf.getvalue().encode("utf-8").replace(b"\r\r\n", b"\r\n")
+        return serialize(result, format)
 
 
 def redact(

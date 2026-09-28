@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Format = Literal["pdf", "xlsx"]
+OutputFormat = Literal["csv", "json"]
 
 
 class Transaction(BaseModel):

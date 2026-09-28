@@ -25,6 +25,7 @@ from .schema import (
     EncryptedSourceError,
     Format,
     LayoutDriftError,
+    OutputFormat,
     ParseError,
     ParseResult,
     ReconciliationError,
@@ -36,6 +37,7 @@ from .schema import (
 )
 from .writers.csv import write_csv
 from .writers.json import write_json
+from .writers.serialize import serialize
 
 __all__ = [
     "CheckStatus",
@@ -43,6 +45,7 @@ __all__ = [
     "EncryptedSourceError",
     "Format",
     "LayoutDriftError",
+    "OutputFormat",
     "Parser",
     "ParseError",
     "ParseResult",
@@ -63,6 +66,7 @@ __all__ = [
     "convert",
     "reconcile_result",
     "redact",
+    "serialize",
     "throttle",
     "write_csv",
     "write_json",

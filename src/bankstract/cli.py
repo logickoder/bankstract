@@ -2,7 +2,7 @@ import sys
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, get_args
 
 import click
 
@@ -12,13 +12,7 @@ from ._source import Source
 from ._xlsx import sniff_format
 from .parsers import all_parsers, get
 from .redactors import all_redactors
-from .schema import ParseError, ReconciliationError
-
-# Output format type. Inline Literal at call sites is the Python idiom,
-# but the alias here keeps the long function signatures readable. Distinct
-# name from `schema.Format` (the INPUT format alias — pdf/xlsx) to avoid
-# the "two unrelated Formats" collision flagged in audit.
-_OutputFormat = Literal["csv", "json"]
+from .schema import OutputFormat, ParseError, ReconciliationError
 
 
 def _read_source(pdf_arg: str) -> Source:
@@ -78,7 +72,7 @@ def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
         "-f",
         "--format",
         "fmt",
-        type=click.Choice(["csv", "json"]),
+        type=click.Choice(get_args(OutputFormat)),
         default="csv",
         show_default=True,
     )(f)
@@ -104,7 +98,7 @@ def list_parsers_cmd() -> None:
 @main.command("auto")
 @click.argument("pdf", type=click.STRING)
 @_io_options
-def auto(pdf: str, output: str, fmt: _OutputFormat, no_reconcile: bool, quiet: bool) -> None:
+def auto(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bool) -> None:
     """Detect bank automatically and parse."""
     source = _read_source(pdf)
     try:
@@ -121,7 +115,7 @@ def _bank_command(bank: str) -> click.Command:
     @main.command(bank)
     @click.argument("pdf", type=click.STRING)
     @_io_options
-    def cmd(pdf: str, output: str, fmt: _OutputFormat, no_reconcile: bool, quiet: bool) -> None:
+    def cmd(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bool) -> None:
         _run(bank, _read_source(pdf), output, fmt, no_reconcile, quiet)
 
     return cmd
@@ -148,7 +142,7 @@ def _run(
     bank: str,
     source: Source,
     output: str,
-    fmt: _OutputFormat,
+    fmt: OutputFormat,
     no_reconcile: bool,
     quiet: bool,
 ) -> None:

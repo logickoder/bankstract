@@ -4,12 +4,14 @@ import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
 import bankstract
+from bankstract import OutputFormat
 
-from ._fixtures import fixture_params
+from ._fixtures import fixture_params, parsed
 
 PALMPAY_SAMPLE = Path(__file__).parent / "palmpay" / "fixtures" / "sample.pdf"
 FBN_SAMPLE = Path(__file__).parent / "fbn" / "fixtures" / "sample.pdf"
@@ -28,6 +30,7 @@ def test_public_surface_exports() -> None:
         "EncryptedSourceError",
         "Format",
         "LayoutDriftError",
+        "OutputFormat",
         "Parser",
         "ParseError",
         "ParseResult",
@@ -48,6 +51,7 @@ def test_public_surface_exports() -> None:
         "convert",
         "reconcile_result",
         "redact",
+        "serialize",
         "throttle",
         "write_csv",
         "write_json",
@@ -89,6 +93,22 @@ def test_convert_json_returns_bytes() -> None:
     assert "reconciliation" in payload
 
 
+@pytest.mark.parametrize("fmt", get_args(OutputFormat))
+def test_serialize_matches_convert(fmt: OutputFormat) -> None:
+    # convert() is parse + reconcile_result + serialize. Doing the steps by
+    # hand must give the same bytes.
+    result = bankstract.reconcile_result(parsed("zenith", ZENITH_SAMPLE))
+    assert bankstract.serialize(result, fmt) == bankstract.convert(
+        ZENITH_SAMPLE, format=fmt, bank="zenith"
+    )
+
+
+def test_serialize_unknown_format_raises() -> None:
+    result = parsed("zenith", ZENITH_SAMPLE)
+    with pytest.raises(ValueError, match="unsupported output format"):
+        bankstract.serialize(result, "xml")  # pyright: ignore[reportArgumentType]
+
+
 def test_convert_json_omits_reconciliation_when_skipped() -> None:
     payload = json.loads(bankstract.convert(ZENITH_SAMPLE, format="json", reconcile=False))
     assert "reconciliation" not in payload
@@ -101,7 +121,7 @@ def test_convert_default_format_is_csv() -> None:
 
 
 @pytest.mark.parametrize(("bank", "fixture"), _SAMPLES)
-@pytest.mark.parametrize("fmt", ["csv", "json"])
+@pytest.mark.parametrize("fmt", get_args(OutputFormat))
 def test_convert_byte_identical_to_cli(bank: str, fixture: Path, fmt: str) -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "bankstract", bank, str(fixture), "-o", "-", "-f", fmt],
