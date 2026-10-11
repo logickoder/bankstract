@@ -46,6 +46,11 @@ BBox = tuple[float, float, float, float]
 
 _SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
 _FIRST_PAGE_SECTION = re.compile(rb"startxref\s+0(?!\d)")
+# Decoded content stream of one page. Real statement pages top out near 36 KB. A
+# crafted page of 400k one-glyph runs is 14 MB and costs 700 MB to extract, about
+# 680 times the file. Checked before extraction: a cap on runs applied after it
+# comes too late.
+_MAX_PAGE_CONTENT = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -81,6 +86,8 @@ class PdfForensics:
     fills: tuple[PdfFill, ...]
     # Text runs and fills left out for coordinates that are not finite numbers.
     unreadable: int = 0
+    # Pages whose content was too large to extract. 1-based.
+    oversized: tuple[int, ...] = ()
 
     @property
     def fonts(self) -> frozenset[str]:
@@ -140,8 +147,12 @@ def pdf_forensics(source: Source) -> PdfForensics:
         spans: list[PdfSpan] = []
         fills: list[PdfFill] = []
         unreadable = 0
+        oversized: list[int] = []
         for page in doc:
             number: int = page.number + 1
+            if len(page.read_contents()) > _MAX_PAGE_CONTENT:
+                oversized.append(number)
+                continue
             for run in page.get_texttrace():
                 # The redactor blanks removed glyphs to spaces inside the run.
                 # The run's own bbox spans them, so box only what is visible.
@@ -195,4 +206,5 @@ def pdf_forensics(source: Source) -> PdfForensics:
         spans=tuple(spans),
         fills=tuple(fills),
         unreadable=unreadable,
+        oversized=tuple(oversized),
     )

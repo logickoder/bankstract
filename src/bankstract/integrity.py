@@ -341,7 +341,7 @@ def _pdf_signals(forensics: PdfForensics, bank: str | None) -> list[IntegritySig
                 "numbers. The size and overlay checks left them out. Inspect the file by eye.",
             )
         )
-    skipped = crowded | over_budget
+    skipped = crowded | over_budget | set(forensics.oversized)
     if skipped:
         signals.append(
             IntegritySignal(

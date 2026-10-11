@@ -630,6 +630,47 @@ def test_overlay_work_past_the_budget_is_skipped_and_said_so(
     assert [s.page for s in report.signals if s.code == "checks_skipped"] == [1]
 
 
+def _runs_page(tmp_path: Path, runs: int) -> Path:
+    """A page of `runs` one-glyph text objects. Each becomes its own run."""
+    body = b"\n".join(
+        b"BT /helv 6 Tf %d %d Td (x) Tj ET" % (10 + i % 500, 10 + (i // 500) % 700)
+        for i in range(runs)
+    )
+    doc: Any = new_doc()
+    page = doc.new_page()
+    page.insert_text((10, 10), "a", fontsize=6)
+    xref = page.get_contents()[0]
+    doc.update_stream(xref, doc.xref_stream(xref) + b"\n" + body)
+    out = tmp_path / "runs.pdf"
+    doc.save(str(out))
+    doc.close()
+    return out
+
+
+def test_a_page_of_runaway_content_is_not_extracted(tmp_path: Path) -> None:
+    # 200k runs cost about 360 MB and 8 seconds to extract: some 700 times the
+    # file. The per-page cap on runs only applies after all of that is built.
+    crafted = _runs_page(tmp_path, 200_000)
+    tracemalloc.start()
+    start = time.perf_counter()
+    try:
+        forensics = pdf_forensics(crafted)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert time.perf_counter() - start < 3
+    assert peak < 60_000_000
+    assert forensics.oversized == (1,)
+    assert forensics.spans == ()
+
+
+def test_an_oversized_page_is_reported_as_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bankstract._pymupdf._MAX_PAGE_CONTENT", 1_000)
+    report = inspect(ZENITH, bank="zenith", result=parsed("zenith", ZENITH))
+    skipped = [s for s in report.signals if s.code == "checks_skipped"]
+    assert [(s.severity, s.page) for s in skipped] == [("warn", 1)]
+
+
 def test_oversized_app_part_is_not_inflated_whole(tmp_path: Path) -> None:
     # 20MB of zeros deflates to about 20KB. Reading the part whole and slicing
     # afterwards would inflate all of it first.
