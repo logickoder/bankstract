@@ -2,6 +2,20 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## Unreleased
+
+### Added
+
+- **`inspect(source, *, bank=None) -> IntegrityReport`.** Tamper signals for a statement: reconciliation, revisions, producer, fonts, font sizes, white-box overlays, day order, statement period. Evidence only, never a verdict. A page too crowded to compare is a `checks_skipped` warning. A file the parser rejects is an `unparseable` error signal. `EncryptedSourceError` still raises.
+- **`inspect(..., result=)`.** Pass a `ParseResult` you already have to skip the second parse. Parse is 4.0s of the 4.5s total on a 58-page opay statement. `bank` must match `result.bank`, or `ValueError`.
+- **`IntegrityReport`** and **`IntegritySignal`**. `.errors`, `.clean` and `.to_dict()` on the report. `to_dict()` is the JSON the CLI prints.
+- **`bankstract inspect <file>`.** JSON report on stdout, one line per signal on stderr. stderr carries code and position only. `detail` quotes the statement, so it stays in the JSON. Exits 2 on any error signal. `--bank` skips detection. `-` reads stdin.
+- **`pdf_forensics()`** in `_pymupdf.py` and **`xlsx_application()`** in `_xlsx.py`. Internal.
+
+### Fixed
+
+- The opay XLSX redactor rewrites every document property and drops the custom part. Raw opay exports carry the template author's name in `lastModifiedBy`, and openpyxl writes back any other property it loads. The committed `tests/opay/fixtures/sample.xlsx` is patched.
+
 ## 0.17.1 - 2026-09-28
 
 ### Fixed

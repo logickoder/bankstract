@@ -34,12 +34,13 @@ bankstract/
 │       ├── cli.py             click entrypoint with --format csv|json + `-` stdin/stdout
 │       ├── schema.py          pydantic Transaction + StatementMetadata + ParseResult + errors
 │       ├── reconcile.py       reconcile_result() entry point + row-wise / totals checks
+│       ├── integrity.py       inspect() + IntegrityReport. Tamper signals, per-bank baselines
 │       ├── _api.py            lib API: parse() / convert() / detect() / redact() / list_parsers()
 │       ├── _source.py         Source = Path | IO[bytes] + rewind() helper
 │       ├── _layout.py         shared Word dataclass + classify + Y-grouping
 │       ├── _pdfplumber.py     typed facade over pdfplumber (open_doc)
-│       ├── _pymupdf.py        typed facade over pymupdf (redactor boundary)
-│       ├── _xlsx.py           typed facade over openpyxl + sniff_format(source)
+│       ├── _pymupdf.py        typed facade over pymupdf (redactor + pdf_forensics boundary)
+│       ├── _xlsx.py           typed facade over openpyxl + sniff_format(source) + xlsx_application
 │       ├── writers/
 │       │   ├── csv.py         write_csv(transactions, target: Path | TextIO)
 │       │   ├── json.py        write_json(result, target). Full ParseResult shape.
@@ -65,6 +66,8 @@ bankstract/
 ├── tests/
 │   ├── _fixtures.py           FIXTURES + RECONCILIATION tables, cached parsed()
 │   ├── test_reconcile.py      bank-agnostic invariant tests
+│   ├── test_integrity.py      forged-file tests per signal. Raw _local files must come back clean
+│   ├── test_cli_inspect.py    `bankstract inspect` exit codes + JSON
 │   ├── test_fixture_invariants.py  cross-bank row checks (zero amounts, has_time)
 │   └── <bank>/                one folder per bank, mirrors src/ layout
 │       ├── test_parser.py
@@ -100,9 +103,13 @@ uv run pyright src tests
 uv run pytest                              # all
 uv run pytest tests/palmpay -v             # one bank
 uv run pytest -k reconcile                 # invariant only
+uv run pytest tests/test_integrity.py      # tamper signals
 
 # run CLI locally
 uv run bankstract palmpay tests/palmpay/fixtures/sample.pdf -o /tmp/out.csv
+
+# tamper signals as JSON. Exit 2 on any error signal
+uv run bankstract inspect tests/zenith/fixtures/sample.pdf
 
 # redact a raw statement into a committable fixture
 uv run bankstract redact list
@@ -137,6 +144,7 @@ One topic per file in `docs/rules/`, the single source of truth. `.claude/rules/
 |---|---|
 | [parsers](docs/rules/parsers.md) | read-before-write, parser contract, shared helpers, progress events |
 | [reconciliation](docs/rules/reconciliation.md) | the invariant, `reconcile_result`, opt-out rules |
+| [integrity](docs/rules/integrity.md) | `inspect()`, tamper signals, baselines from raw files |
 | [fixture-privacy](docs/rules/fixture-privacy.md) | redaction, placeholders, `_local/` |
 | [testing](docs/rules/testing.md) | fixture registration, dual-fixture rule, no mocking |
 | [code-style](docs/rules/code-style.md) | pyright strict, comments, stack conventions |

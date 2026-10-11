@@ -165,12 +165,13 @@ bankstract/
 │       ├── cli.py             click + --format csv|json + `-` stdin/stdout
 │       ├── schema.py          Transaction + StatementMetadata + ParseResult + errors
 │       ├── reconcile.py       reconcile_result() + reconcile() + verify_totals()
+│       ├── integrity.py       inspect() + IntegrityReport. Tamper signals, per-bank baselines
 │       ├── _api.py            lib API: parse() / convert() / detect() / redact() / list_parsers()
 │       ├── _source.py         Source = Path | IO[bytes] + rewind()
 │       ├── _layout.py         Word dataclass + classify + Y-grouping (shared)
 │       ├── _pdfplumber.py     typed facade over pdfplumber
-│       ├── _pymupdf.py        typed facade over pymupdf
-│       ├── _xlsx.py           typed facade over openpyxl + sniff_format()
+│       ├── _pymupdf.py        typed facade over pymupdf (redactor + pdf_forensics)
+│       ├── _xlsx.py           typed facade over openpyxl + sniff_format() + xlsx_application()
 │       ├── writers/csv.py     write_csv(transactions, target: Path | TextIO)
 │       ├── writers/json.py    write_json(result, target). Full ParseResult shape.
 │       ├── writers/serialize.py  serialize(result, format) -> canonical bytes
