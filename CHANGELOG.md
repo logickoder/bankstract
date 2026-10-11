@@ -15,6 +15,10 @@ Notable changes per release. Pre-1.0. Breaking changes land freely. Called out i
 - **`bankstract inspect <file>`.** JSON report on stdout, one line per signal on stderr. stderr carries code and position only. `detail` quotes the statement, so it stays in the JSON. Exits 2 on any error signal. `--bank` skips detection. `-` reads stdin.
 - **`pdf_forensics()`** in `_pymupdf.py` and **`xlsx_application()`** in `_xlsx.py`. Internal.
 
+### Changed
+
+- **Requires pymupdf 1.28.2 or newer** (was 1.27.2). pymupdf 1.27.2.3 aborts the interpreter on Python 3.11 after about 50 calls to `page.get_texttrace()`, so `inspect()` over a folder of statements in one process crashed. 1.28.2 ran 1500 calls clean on 3.11, and 1.27.2.3 is clean on 3.13.
+
 ### Fixed
 
 - The opay XLSX redactor rewrites every document property and drops the custom part. Raw opay exports carry the template author's name in `lastModifiedBy`, and openpyxl writes back any other property it loads. The committed `tests/opay/fixtures/sample.xlsx` is patched.
