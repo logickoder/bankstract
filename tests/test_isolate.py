@@ -12,6 +12,7 @@ import pytest
 
 from bankstract import convert, detect, parse, redact
 from bankstract._isolate import run_isolated
+from bankstract._progress import ProgressEvent, emit
 from bankstract._pymupdf import new_doc, open_doc
 from bankstract.integrity import inspect
 from bankstract.schema import (
@@ -184,12 +185,6 @@ def test_reconciliation_errors_keep_their_attributes_across_the_boundary(tmp_pat
     assert str(isolated.value) == str(plain.value)
 
 
-@pytest.mark.parametrize("call", [parse, convert])
-def test_a_progress_callback_cannot_cross_into_the_worker(call: Any) -> None:
-    with pytest.raises(ValueError, match="progress_callback cannot run with isolate=True"):
-        call(ZENITH, isolate=True, progress_callback=lambda _event: None)
-
-
 def test_a_runaway_page_cannot_hang_an_isolated_parse(tmp_path: Path) -> None:
     crafted = _form_page(tmp_path, 100_000)
     start = time.perf_counter()
@@ -247,11 +242,6 @@ def test_isolated_redact_matches_in_process() -> None:
     )
 
 
-def test_a_progress_callback_cannot_cross_into_a_redact_worker() -> None:
-    with pytest.raises(ValueError, match="progress_callback cannot run with isolate=True"):
-        redact(ZENITH, isolate=True, progress_callback=lambda _event: None)
-
-
 @pytest.mark.parametrize("call", [detect, redact])
 def test_isolate_true_hands_detect_and_redact_to_a_worker(
     call: Any, monkeypatch: pytest.MonkeyPatch
@@ -288,3 +278,74 @@ def test_a_runaway_page_cannot_hang_an_isolated_redact(tmp_path: Path) -> None:
     with pytest.raises(ResourceLimitError, match="stopped after 1s"):
         redact(crafted, bank="zenith", isolate=True, timeout=1)
     assert time.perf_counter() - start < 15
+
+
+# Jobs for the streaming tests. They run in the child, so they live at module level.
+def _emit_slowly() -> str:
+    for i in (1, 2, 3):
+        emit("step", i, 3)
+        time.sleep(0.6)
+    return "finished"
+
+
+def _emit_forever() -> None:
+    i = 0
+    while True:
+        i += 1
+        emit("step", i, 10**9)
+        time.sleep(0.1)
+
+
+def _emit_then_touch(marker: str) -> None:
+    emit("step", 1, 2)
+    time.sleep(2)
+    Path(marker).touch()
+
+
+@pytest.mark.parametrize("call", [parse, convert, redact], ids=["parse", "convert", "redact"])
+def test_isolated_progress_matches_in_process(call: Any) -> None:
+    plain: list[ProgressEvent] = []
+    isolated: list[ProgressEvent] = []
+    call(ZENITH, bank="zenith", progress_callback=plain.append)
+    call(ZENITH, bank="zenith", progress_callback=isolated.append, isolate=True)
+    assert plain, "the in-process call fired no events"
+    assert isolated == plain
+    assert [e.stage for e in isolated].count("done") == 1
+    assert isolated[-1].stage == "done"
+
+
+def test_events_arrive_while_the_worker_is_still_running() -> None:
+    arrivals: list[float] = []
+    start = time.perf_counter()
+    result = run_isolated(
+        _emit_slowly, timeout=60, on_progress=lambda _e: arrivals.append(time.perf_counter())
+    )
+    finished = time.perf_counter()
+    assert result == "finished"
+    # Three events 0.6s apart, then the result. Buffered until the end they would
+    # all land within a few milliseconds of `finished`.
+    assert len(arrivals) == 4  # three steps and `done`
+    assert finished - arrivals[0] > 1.0
+    assert arrivals[0] - start < finished - start - 1.0
+
+
+def test_the_timeout_holds_while_events_keep_arriving() -> None:
+    events: list[ProgressEvent] = []
+    start = time.perf_counter()
+    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
+        run_isolated(_emit_forever, timeout=1, on_progress=events.append)
+    assert time.perf_counter() - start < 10
+    assert len(events) >= 3  # the stream was live, and it still ended at the limit
+
+
+def test_a_callback_that_raises_kills_the_worker(tmp_path: Path) -> None:
+    marker = tmp_path / "worker-survived"
+
+    def boom(_event: ProgressEvent) -> None:
+        raise RuntimeError("callback failed")
+
+    with pytest.raises(RuntimeError, match="callback failed"):
+        run_isolated(_emit_then_touch, str(marker), timeout=60, on_progress=boom)
+    # A live worker would touch the marker after 2s.
+    time.sleep(3.5)
+    assert not marker.exists()

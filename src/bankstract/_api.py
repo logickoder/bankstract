@@ -16,7 +16,6 @@ from ._isolate import (
     DEFAULT_MEMORY_MB,
     DEFAULT_TIMEOUT,
     payload_of,
-    reject_progress,
     run_isolated,
     source_of,
 )
@@ -172,15 +171,16 @@ def parse(
     make: a crafted PDF can cost gigabytes inside one extraction call, which
     nothing in-process can stop. A child that passes `timeout` seconds, runs
     out of memory or dies raises `ResourceLimitError`. `memory_mb` is enforced
-    on Linux only. Adds about 0.3s a call. Not with `progress_callback`."""
+    on Linux only. Adds about 0.3s a call. `progress_callback` still gets the
+    same events, in order, as the worker fires them."""
     if isolate:
-        reject_progress(progress_callback)
         return run_isolated(
             _parse_job,
             payload_of(normalize_source(source)),
             bank,
             timeout=timeout,
             memory_mb=memory_mb,
+            on_progress=progress_callback,
         )
 
     def _parse_call(parser: Parser | Redactor, src: Source) -> ParseResult:
@@ -243,7 +243,6 @@ def convert(
     """
     check_format(format)  # fail before the parse, not after
     if isolate:
-        reject_progress(progress_callback)
         return run_isolated(
             _convert_job,
             payload_of(normalize_source(source)),
@@ -252,6 +251,7 @@ def convert(
             reconcile,
             timeout=timeout,
             memory_mb=memory_mb,
+            on_progress=progress_callback,
         )
 
     with progress_scope(progress_callback):
@@ -290,15 +290,15 @@ def redact(
     `progress_callback` receives `redact_page` × N + `done`.
 
     `isolate=True` runs the redaction in a child process, as `parse()` does.
-    Not with `progress_callback`."""
+    `progress_callback` still gets the same events, in order."""
     if isolate:
-        reject_progress(progress_callback)
         return run_isolated(
             _redact_job,
             payload_of(normalize_source(source)),
             bank,
             timeout=timeout,
             memory_mb=memory_mb,
+            on_progress=progress_callback,
         )
 
     def _redact_call(redactor: Parser | Redactor, src: Source) -> RedactResult:

@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import sys
+import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from io import BytesIO
 from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any, TypeVar
 
+from ._progress import ProgressCallback, ProgressEvent, progress_scope
 from ._source import Source, rewind
 from .schema import ResourceLimitError
 
@@ -38,17 +41,16 @@ def source_of(payload: Path | bytes) -> Source:
     return BytesIO(payload) if isinstance(payload, bytes) else payload
 
 
-def reject_progress(callback: object | None) -> None:
-    # The worker is another process. A callback cannot cross, and events fired
-    # there would never reach it.
-    if callback is not None:
-        raise ValueError(
-            "progress_callback cannot run with isolate=True. The worker is a separate "
-            "process. Drop one of them."
-        )
+def _child(
+    conn: Connection,
+    func: Callable[..., Any],
+    args: tuple[Any, ...],
+    limit: int,
+    forward: bool,
+) -> None:
+    def send_event(event: ProgressEvent) -> None:
+        conn.send(("progress", event))
 
-
-def _child(conn: Connection, func: Callable[..., Any], args: tuple[Any, ...], limit: int) -> None:
     outcome: tuple[str, Any]
     try:
         if limit and sys.platform != "win32":
@@ -57,7 +59,10 @@ def _child(conn: Connection, func: Callable[..., Any], args: tuple[Any, ...], li
             except (ValueError, OSError):
                 # macOS refuses the limit. The time limit still holds.
                 pass
-        outcome = ("ok", func(*args))
+        # The scope makes the child fire the events, `done` included, that an
+        # in-process call would. `func` is called with no callback of its own.
+        with progress_scope(send_event) if forward else nullcontext():
+            outcome = ("ok", func(*args))
     except BaseException as exc:  # noqa: BLE001 - the parent re-raises it
         outcome = ("error", exc)
     try:
@@ -69,32 +74,48 @@ def _child(conn: Connection, func: Callable[..., Any], args: tuple[Any, ...], li
 
 
 def run_isolated(
-    func: Callable[..., _T], *args: Any, timeout: float, memory_mb: int | None = None
+    func: Callable[..., _T],
+    *args: Any,
+    timeout: float,
+    memory_mb: int | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> _T:
     """Call `func(*args)` in a spawned child. Raises `ResourceLimitError` when
     the child passes `timeout` seconds, runs out of memory or dies without a
     result. An exception `func` raises is re-raised here. `memory_mb` is
-    enforced on Linux only: macOS and Windows get the time limit alone."""
+    enforced on Linux only: macOS and Windows get the time limit alone.
+
+    `on_progress` receives the child's progress events here, in order, as they
+    happen. The timeout counts from the call, not from the last event. An
+    exception `on_progress` raises stops the child and propagates."""
     ctx = mp.get_context("spawn")
     receiver, sender = ctx.Pipe(duplex=False)
     limit = memory_mb * 1024 * 1024 if memory_mb else 0
-    proc = ctx.Process(target=_child, args=(sender, func, args, limit), daemon=True)
+    proc = ctx.Process(
+        target=_child, args=(sender, func, args, limit, on_progress is not None), daemon=True
+    )
+    deadline = time.monotonic() + timeout
     proc.start()
     sender.close()
     try:
-        if not receiver.poll(timeout):
-            raise ResourceLimitError(
-                f"Worker stopped after {timeout:g}s. The file took longer than the limit "
-                "to check. Treat it as untrusted, or raise the timeout for a file you trust."
-            )
-        try:
-            kind, value = receiver.recv()
-        except EOFError:
-            proc.join(1)
-            raise ResourceLimitError(
-                f"Worker ended with exit code {proc.exitcode} and no result. It crashed or "
-                "ran out of memory. Treat the file as untrusted."
-            ) from None
+        while True:
+            if not receiver.poll(max(0.0, deadline - time.monotonic())):
+                raise ResourceLimitError(
+                    f"Worker stopped after {timeout:g}s. The file took longer than the limit "
+                    "to check. Treat it as untrusted, or raise the timeout for a file you trust."
+                )
+            try:
+                kind, value = receiver.recv()
+            except EOFError:
+                proc.join(1)
+                raise ResourceLimitError(
+                    f"Worker ended with exit code {proc.exitcode} and no result. It crashed or "
+                    "ran out of memory. Treat the file as untrusted."
+                ) from None
+            if kind != "progress":
+                break
+            if on_progress is not None:
+                on_progress(value)
     finally:
         receiver.close()
         if proc.is_alive():

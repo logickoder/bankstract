@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from bankstract._progress import ProgressEvent
 from bankstract.cli import main
 
 from ._forge import ZENITH
@@ -65,3 +66,19 @@ def test_a_redact_worker_that_cannot_finish_exits_two_and_writes_nothing(tmp_pat
     assert result.exit_code == 2
     assert result.stderr.startswith("error: Worker stopped after 0.05s.")
     assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["zenith", str(ZENITH), "-o", "-"], ["redact", "zenith", str(ZENITH), "-"]],
+    ids=["parse", "redact"],
+)
+def test_the_progress_bar_works_under_isolate(
+    args: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[ProgressEvent] = []
+    monkeypatch.setattr("bankstract.cli._progress_callback", lambda quiet: events.append)
+    result = CliRunner().invoke(main, [*args, "--isolate"])
+    assert result.exit_code == 0, result.output
+    assert events
+    assert events[-1].stage == "done"

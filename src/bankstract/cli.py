@@ -79,8 +79,7 @@ def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
     f = click.option(
         "--isolate",
         is_flag=True,
-        help="Run in a child process with a time limit. Use it on files you do not trust. "
-        "No progress bar.",
+        help="Run in a child process with a time limit. Use it on files you do not trust.",
     )(f)
     f = click.option(
         "--timeout",
@@ -200,8 +199,7 @@ def _run(
             format=fmt,
             bank=bank,
             reconcile=not no_reconcile,
-            # A callback cannot reach into the child, so no bar when isolated.
-            progress_callback=None if isolate else _progress_callback(quiet=quiet),
+            progress_callback=_progress_callback(quiet=quiet),
             isolate=isolate,
             timeout=timeout,
         )
@@ -289,8 +287,7 @@ def _redactor_command(bank: str) -> click.Command:
     @click.option(
         "--isolate",
         is_flag=True,
-        help="Run in a child process with a time limit. Use it on files you do not trust. "
-        "No progress bar.",
+        help="Run in a child process with a time limit. Use it on files you do not trust.",
     )
     @click.option(
         "--timeout",
@@ -309,8 +306,7 @@ def _redactor_command(bank: str) -> click.Command:
             result = _lib_redact(
                 source,
                 bank=bank,
-                # A callback cannot reach into the child, so no bar when isolated.
-                progress_callback=None if isolate else _progress_callback(quiet=quiet),
+                progress_callback=_progress_callback(quiet=quiet),
                 isolate=isolate,
                 timeout=timeout,
             )
