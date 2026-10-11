@@ -8,6 +8,7 @@ re-imports the package and costs about 0.35s, which is what Windows gets."""
 
 from __future__ import annotations
 
+import importlib
 import multiprocessing as mp
 import pickle
 import sys
@@ -17,7 +18,6 @@ from contextlib import nullcontext
 from functools import cache
 from io import BytesIO
 from multiprocessing.connection import Connection
-from multiprocessing.context import ForkServerContext, SpawnContext
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Any, TypeVar
@@ -25,9 +25,6 @@ from typing import Any, TypeVar
 from ._progress import ProgressCallback, ProgressEvent, progress_scope
 from ._source import Source, read_bytes
 from .schema import ResourceLimitError
-
-if sys.platform != "win32":
-    import resource
 
 _T = TypeVar("_T")
 
@@ -53,7 +50,9 @@ def source_of(payload: Path | bytes) -> Source:
 
 
 @cache
-def _context() -> ForkServerContext | SpawnContext:
+def _context() -> Any:
+    # Typed Any: typeshed has no ForkServerContext on Windows and names the pipe
+    # class differently there, so one precise type fits neither platform.
     if sys.platform == "win32":
         return mp.get_context("spawn")
     ctx = mp.get_context("forkserver")
@@ -72,7 +71,7 @@ def _apply_memory_limit(
     silent one would leave the call unbounded while the caller believes otherwise."""
     if not memory_mb or platform == "win32":
         return
-    res = resource if res is None else res
+    res = importlib.import_module("resource") if res is None else res
     limit = memory_mb * 1024 * 1024
     _, hard = res.getrlimit(res.RLIMIT_AS)
     if hard != res.RLIM_INFINITY:
@@ -130,7 +129,7 @@ def _ignore(_event: ProgressEvent) -> None:
 
 
 def _next_message(
-    receiver: Connection, proc: BaseProcess, deadline: float, timeout: float
+    receiver: Any, proc: BaseProcess, deadline: float, timeout: float
 ) -> tuple[str, Any]:
     """One message from the child: `("progress", event)`, `("ok", result)` or
     `("error", exception)`. Raises `ResourceLimitError` past the deadline, on a
