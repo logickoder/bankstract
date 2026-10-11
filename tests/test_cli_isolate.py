@@ -45,3 +45,23 @@ def test_a_missing_file_is_still_a_clean_cli_error(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "file not found" in result.output
+
+
+def test_isolated_redact_writes_the_same_report(tmp_path: Path) -> None:
+    plain_out, isolated_out = tmp_path / "plain.pdf", tmp_path / "isolated.pdf"
+    plain = CliRunner().invoke(main, ["redact", "zenith", str(ZENITH), str(plain_out), "-q"])
+    isolated = CliRunner().invoke(
+        main, ["redact", "zenith", str(ZENITH), str(isolated_out), "--isolate"]
+    )
+    assert isolated.exit_code == 0, isolated.output
+    assert isolated_out.stat().st_size > 0
+    assert isolated.stderr == plain.stderr
+
+
+def test_a_redact_worker_that_cannot_finish_exits_two_and_writes_nothing(tmp_path: Path) -> None:
+    out = tmp_path / "out.pdf"
+    args = ["redact", "zenith", str(ZENITH), str(out), "--isolate", "--timeout", "0.05"]
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 2
+    assert result.stderr.startswith("error: Worker stopped after 0.05s.")
+    assert not out.exists()

@@ -286,7 +286,20 @@ def _redactor_command(bank: str) -> click.Command:
     @click.argument("dst", type=click.STRING)
     @click.option("--audit/--no-audit", default=True, help="Print per-page audit to stderr.")
     @click.option("-q", "--quiet", is_flag=True, help="Suppress the progress bar (stderr).")
-    def cmd(src: str, dst: str, audit: bool, quiet: bool) -> None:
+    @click.option(
+        "--isolate",
+        is_flag=True,
+        help="Run in a child process with a time limit. Use it on files you do not trust. "
+        "No progress bar.",
+    )
+    @click.option(
+        "--timeout",
+        type=click.FloatRange(min=0, min_open=True),
+        default=DEFAULT_TIMEOUT,
+        show_default=True,
+        help="Seconds the child may run. Only with --isolate.",
+    )
+    def cmd(src: str, dst: str, audit: bool, quiet: bool, isolate: bool, timeout: float) -> None:
         # Thin wrapper over bankstract.redact — single source of truth for
         # the dispatch logic lives in _api. CLI just handles I/O framing.
         from . import redact as _lib_redact
@@ -294,8 +307,16 @@ def _redactor_command(bank: str) -> click.Command:
         source = _read_source(src)
         try:
             result = _lib_redact(
-                source, bank=bank, progress_callback=_progress_callback(quiet=quiet)
+                source,
+                bank=bank,
+                # A callback cannot reach into the child, so no bar when isolated.
+                progress_callback=None if isolate else _progress_callback(quiet=quiet),
+                isolate=isolate,
+                timeout=timeout,
             )
+        except ResourceLimitError as exc:
+            click.echo(f"error: {exc}", err=True)
+            sys.exit(2)
         except ParseError as exc:
             raise click.ClickException(str(exc)) from exc
 

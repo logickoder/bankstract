@@ -84,10 +84,26 @@ def list_redactors() -> list[str]:
     return sorted(all_redactors())
 
 
-def detect(source: SourceLike) -> str | None:
+def detect(
+    source: SourceLike,
+    *,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
+) -> str | None:
     """Return the bank name whose parser scores highest on `source`, or
-    None if no parser claims it."""
-    return _detect(normalize_source(source), banks=all_parsers().keys())
+    None if no parser claims it.
+
+    `isolate=True` runs the detection in a child process, as `parse()` does.
+    Detection reads the file, so it is exposed to a crafted one too."""
+    src = normalize_source(source)
+    if isolate:
+        return run_isolated(_detect_job, payload_of(src), timeout=timeout, memory_mb=memory_mb)
+    return _detect(src, banks=all_parsers().keys())
+
+
+def _detect_job(payload: Path | bytes) -> str | None:
+    return detect(source_of(payload))
 
 
 def _dispatch(
@@ -248,11 +264,18 @@ def convert(
         return serialize(result, format)
 
 
+def _redact_job(payload: Path | bytes, bank: str | None) -> RedactResult:
+    return redact(source_of(payload), bank=bank)
+
+
 def redact(
     source: SourceLike,
     *,
     bank: str | None = None,
     progress_callback: ProgressCallback | None = None,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> RedactResult:
     """Redact `source` into a `RedactResult` carrying bytes + metadata.
 
@@ -264,7 +287,19 @@ def redact(
     callers (HTTP responses, archives, Cloud workers) get the payload
     without tempfile cleanup. Unrecognised format → `ParseError`.
 
-    `progress_callback` receives `redact_page` × N + `done`."""
+    `progress_callback` receives `redact_page` × N + `done`.
+
+    `isolate=True` runs the redaction in a child process, as `parse()` does.
+    Not with `progress_callback`."""
+    if isolate:
+        reject_progress(progress_callback)
+        return run_isolated(
+            _redact_job,
+            payload_of(normalize_source(source)),
+            bank,
+            timeout=timeout,
+            memory_mb=memory_mb,
+        )
 
     def _redact_call(redactor: Parser | Redactor, src: Source) -> RedactResult:
         assert isinstance(redactor, Redactor)

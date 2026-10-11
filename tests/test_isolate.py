@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from bankstract import convert, parse
+from bankstract import convert, detect, parse, redact
 from bankstract._isolate import run_isolated
 from bankstract._pymupdf import new_doc, open_doc
 from bankstract.integrity import inspect
@@ -228,3 +228,63 @@ def test_isolate_false_never_starts_a_worker(call: Any, monkeypatch: pytest.Monk
 
     monkeypatch.setattr("bankstract._api.run_isolated", fail)
     call(ZENITH)
+
+
+def test_isolated_detect_matches_in_process() -> None:
+    assert detect(ZENITH, isolate=True) == detect(ZENITH) == "zenith"
+    assert detect(BytesIO(ZENITH.read_bytes()), isolate=True) == "zenith"
+
+
+def test_isolated_redact_matches_in_process() -> None:
+    # Redacted bytes differ from run to run, so compare the report and the rows.
+    plain = redact(ZENITH, bank="zenith")
+    isolated = redact(ZENITH, bank="zenith", isolate=True)
+    assert isolated.report == plain.report
+    assert (isolated.bank, isolated.format_version) == (plain.bank, plain.format_version)
+    assert (
+        parse(BytesIO(isolated.data), bank="zenith").transactions
+        == parse(BytesIO(plain.data), bank="zenith").transactions
+    )
+
+
+def test_a_progress_callback_cannot_cross_into_a_redact_worker() -> None:
+    with pytest.raises(ValueError, match="progress_callback cannot run with isolate=True"):
+        redact(ZENITH, isolate=True, progress_callback=lambda _event: None)
+
+
+@pytest.mark.parametrize("call", [detect, redact])
+def test_isolate_true_hands_detect_and_redact_to_a_worker(
+    call: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def spy(*_args: Any, **_kwargs: Any) -> str:
+        return "ran in a worker"
+
+    monkeypatch.setattr("bankstract._api.run_isolated", spy)
+    assert call(ZENITH, isolate=True) == "ran in a worker"
+
+
+@pytest.mark.parametrize("call", [detect, redact])
+def test_isolate_false_never_starts_a_worker_for_detect_or_redact(
+    call: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("a worker started without isolate=True")
+
+    monkeypatch.setattr("bankstract._api.run_isolated", fail)
+    call(ZENITH)
+
+
+def test_a_runaway_page_cannot_hang_an_isolated_detect(tmp_path: Path) -> None:
+    crafted = _form_page(tmp_path, 100_000)
+    start = time.perf_counter()
+    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
+        detect(crafted, isolate=True, timeout=1)
+    assert time.perf_counter() - start < 15
+
+
+def test_a_runaway_page_cannot_hang_an_isolated_redact(tmp_path: Path) -> None:
+    crafted = _form_page(tmp_path, 100_000)
+    start = time.perf_counter()
+    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
+        redact(crafted, bank="zenith", isolate=True, timeout=1)
+    assert time.perf_counter() - start < 15
