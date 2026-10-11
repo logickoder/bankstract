@@ -92,3 +92,7 @@ The cover check flags a fill that touches a tenth of one glyph. A forger can spl
 ### 14. A forged column keeps its own size
 
 `font_size_outlier` compares an amount with the other amounts in its column. A forger who retypes every amount in a column at one new size leaves a column that agrees with itself. The original column is gone, so nothing disagrees. Close it by comparing a column's size with the bank's known amount size, which needs a per-bank baseline from more raw statements (see item 1).
+
+### 15. A compressed content stream is decoded in full before the size gate
+
+`_MAX_PAGE_CONTENT` checks the decoded size, so `read_contents()` decodes the whole stream first. A Flate stream can expand a thousand times, so a small file can still cost memory equal to the decoded size, though no longer 680 times that. mupdf decodes it for any reader, and `parse()` does the same, so this is the library's exposure and not new to `inspect()`. Close it by reading the compressed length first and refusing a page whose stream cannot expand to the cap, or by decoding with a bound.

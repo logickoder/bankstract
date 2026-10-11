@@ -195,7 +195,7 @@ opay balances skip OWealth auto-save moves, so they don't chain. `Reconciliation
 | `font_size_outlier`     | warn     | An amount's size differs from its table column.                            |
 | `date_out_of_order`     | warn     | Rows break day order. Same-day order is ignored.                           |
 | `date_outside_period`   | warn     | A row falls outside the statement period.                                  |
-| `checks_skipped`        | warn     | A check did not run on part of the file: a page holds over 2000 text runs or fills, overlay work passed 20 million comparisons, objects have coordinates that are not numbers, or the file would not open for the file checks. |
+| `checks_skipped`        | warn     | A check did not run on part of the file: a page holds over 2000 text runs or fills, a page's decoded content passes 2 MB, overlay work passed 20 million comparisons, objects have coordinates that are not numbers, or the file would not open for the file checks. |
 
 `IntegritySignal.detail` quotes the statement: amounts, balances, covered text. It is customer data. Show it to the statement's owner. Never log it. Log `code`, `severity`, `page` and `row` instead.
 
