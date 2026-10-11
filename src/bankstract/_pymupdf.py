@@ -44,7 +44,7 @@ def new_doc() -> Any:
 BBox = tuple[float, float, float, float]
 
 _SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
-_REVISION = re.compile(rb"startxref\s+\d+")
+_FIRST_PAGE_SECTION = re.compile(rb"startxref\s+0(?!\d)")
 
 
 @dataclass(frozen=True)
@@ -89,19 +89,25 @@ def _raw_bytes(source: Source) -> bytes:
 
 
 def _revisions(raw: bytes) -> int:
-    """Revisions in a PDF file. Every one ends in `startxref <offset>`. A bare
-    "%%EOF" can sit in a string, and a forger can leave it off. The `/Prev`
-    chain would miss a revision written without a `/Prev`.
+    """Revisions in a PDF file: the number of `startxref` keywords. Not
+    `startxref <offset>`: PDF reads a comment as whitespace, so
+    `startxref %c` then the offset is a section a pattern for digits misses.
+    A bare "%%EOF" can sit in a string, and a forger can leave it off. The
+    `/Prev` chain would miss a revision written without a `/Prev`.
 
-    Every section counts, including one inside an uncompressed attachment.
+    Every keyword counts, including one inside an uncompressed attachment.
     Skipping sections "inside a stream body" would trust the file's own
     `/Length`, which a forger sets. A reader finds the last `startxref` from
     the end of the file and ignores stream boundaries, so a forged tail can
     sit inside a fake stream and vanish from the count. The cost is a loud
-    false positive on a statement that embeds an uncompressed PDF."""
-    revisions = len(_REVISION.findall(raw))
-    # A linearized file carries a second section by design.
-    if b"/Linearized" in raw[:1024]:
+    false positive on a statement that embeds an uncompressed PDF.
+
+    A linearized file writes a first-page section at the top, `startxref 0`.
+    Only that section is discounted, and only with `/Linearized` beside it.
+    The marker alone cancels nothing, so a forged one hides no revision."""
+    revisions = raw.count(b"startxref")
+    head = raw[:1024]
+    if b"/Linearized" in head and _FIRST_PAGE_SECTION.search(head):
         revisions -= 1
     return revisions
 

@@ -431,6 +431,27 @@ def test_update_appended_to_a_linearized_file_is_a_second_revision() -> None:
     assert _revisions(_LINEARIZED + update) == 2
 
 
+def test_forged_linearized_marker_does_not_hide_a_revision(tmp_path: Path) -> None:
+    # Only the section a linearized file writes at the top is discounted. A
+    # comment that says "/Linearized" is not that section.
+    forged = tmp_path / "forged.pdf"
+    append_revision(ZENITH, forged)
+    raw = forged.read_bytes()
+    assert _revisions(raw) == 2
+    header_end = raw.index(b"\n") + 1
+    marked = raw[:header_end] + b"% /Linearized\n" + raw[header_end:]
+    assert _revisions(marked) == 2
+    # Adding the top section too nets out: one extra keyword, one discount.
+    both = raw[:header_end] + b"% /Linearized\n% startxref 0\n" + raw[header_end:]
+    assert _revisions(both) == 2
+
+
+def test_comment_between_startxref_and_offset_is_still_counted() -> None:
+    # PDF treats a comment as whitespace, so a reader still finds this section.
+    commented = b"startxref %c\n116\n%%EOF\n"
+    assert _revisions(_LINEARIZED_BASE + commented) == 2
+
+
 def test_revision_without_eof_marker_is_still_counted(tmp_path: Path) -> None:
     # A reader finds the last `startxref`. A forger can drop the marker after it.
     forged = tmp_path / "forged.pdf"
