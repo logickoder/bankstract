@@ -95,12 +95,13 @@ The cover check flags a fill that touches a tenth of one glyph. A forger can spl
 
 ### 15. Isolation is opt-in, and its memory limit is Linux only
 
-`inspect(isolate=True)` bounds any file with a time limit, which closes the form-XObject, Flate and repetition cases that the in-process content gate cannot see: a 62-byte page invoking a form of 100k runs is killed at the limit (`tests/test_isolate.py` builds it). What stays open:
+`isolate=True` on `inspect()`, `parse()` and `convert()` bounds any file with a time limit, which closes the form-XObject, Flate and repetition cases that the in-process content gate cannot see: a 62-byte page invoking a form of 100k runs is killed at the limit (`tests/test_isolate.py` builds it). What stays open:
 
 - **Off by default.** A caller who forgets the flag is unprotected. A service taking uploads must pass it.
 - **No memory limit on macOS or Windows.** macOS refuses `RLIMIT_AS` (`setrlimit` raises `current limit exceeds maximum limit`), and Windows has no equivalent. A runaway child there is bounded by the time limit alone, so it can use gigabytes for up to `timeout` seconds. Close it with a job object on Windows and a polling RSS check on macOS.
 - **The Linux limit is untested here.** The test runs in CI on Ubuntu only. `memory_mb=2048` is a guess at what pymupdf needs in address space, so it could kill a genuine file or let too much through. Confirm on a real Linux run and tune it.
-- **`parse()` and `convert()` are not isolated.** pdfplumber has the same exposure, and `inspect()` is protected only when it does its own parse inside the child. Isolate those entry points the same way, or document that callers must.
+- **`detect()` and `redact()` are not isolated.** Both read the file in the calling process: `detect()` through pdfplumber, `redact()` through pymupdf. `parse()`, `convert()` and `inspect()` are, and `auto --isolate` detects inside the child. Isolate those two the same way, or document that callers must.
+- **No progress events from a worker.** A callback cannot cross the process boundary, so `isolate=True` with one raises `ValueError`. A long isolated parse shows nothing until it ends. Close it by streaming events over the pipe.
 - **The in-process gates are first lines, not bounds.** `_MAX_PAGE_CONTENT` reads the page stream only and decodes a compressed one in full first. They stop the naive crafted file. They do not stop a determined one.
 
 Not a gap, checked: a cover drawn as an annotation. pymupdf reports annotation appearance streams through `get_drawings`, so a white Square annotation over an amount is flagged.

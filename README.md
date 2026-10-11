@@ -31,6 +31,7 @@ bankstract inspect <pdf> --isolate             # untrusted file: child process, 
 bankstract <bank> <pdf> -o out.json -f json    # JSON instead of CSV
 cat statement.pdf | bankstract auto - -o -     # stdin / stdout pipeline
 bankstract <bank> <pdf> -o <out> -q            # suppress the stderr progress bar
+bankstract auto <pdf> -o <out> --isolate       # untrusted file: child process, 60s limit, exit 2 if it cannot finish
 ```
 
 `-` reads stdin or writes stdout. Messages and the progress bar go to stderr, so piped data stays clean. The bar shows only on a TTY.
@@ -125,8 +126,8 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 
 | Name                  | Kind          | Purpose                                             |
 | --------------------- | ------------- | --------------------------------------------------- |
-| `parse`               | function      | `parse(source, *, bank=None) -> ParseResult`        |
-| `convert`             | function      | `convert(source, *, format="csv", bank=None, reconcile=True, progress_callback=None) -> bytes`. Byte-identical to CLI. |
+| `parse`               | function      | `parse(source, *, bank=None, progress_callback=None, isolate=False, timeout=60.0, memory_mb=2048) -> ParseResult`. `isolate=True` runs it in a child process. |
+| `convert`             | function      | `convert(source, *, format="csv", bank=None, reconcile=True, progress_callback=None, isolate=False, timeout=60.0, memory_mb=2048) -> bytes`. Byte-identical to CLI, isolated or not. |
 | `reconcile_result`    | function      | `reconcile_result(result, *, progress_callback=None) -> ReconciledParseResult`. Raises `ReconciliationError` on a break or when no check can run. |
 | `serialize`           | function      | `serialize(result, format: OutputFormat) -> bytes`. The canonical bytes `convert` and the CLI emit. |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
@@ -203,11 +204,12 @@ opay balances skip OWealth auto-save moves, so they don't chain. `Reconciliation
 
 ### Untrusted files
 
-A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code can stop that. A 62-byte page that invokes a form of 100,000 text runs takes 4s and 180 MB. Pass `isolate=True` (CLI `--isolate`) for any file you did not make. The whole call runs in a spawned child with a time limit. A child that passes the limit, runs out of memory or dies raises `ResourceLimitError`, and the CLI exits 2 with no report. It never returns a clean one.
+A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code can stop that. A 62-byte page that invokes a form of 100,000 text runs takes 4s and 180 MB. Pass `isolate=True` (CLI `--isolate`) to `parse()`, `convert()` or `inspect()` for any file you did not make. The whole call runs in a spawned child with a time limit. A child that passes the limit, runs out of memory or dies raises `ResourceLimitError`, and the CLI exits 2 with no report. It never returns a clean one.
 
 - Costs about 0.3s a call. Off by default, like `parse()`.
 - The memory limit (`memory_mb`) is enforced on Linux only. macOS refuses `RLIMIT_AS`, and Windows has no equivalent, so both get the time limit alone.
-- `parse()` and `convert()` are not isolated. A service taking uploads should run those in a worker it can kill too.
+- A `progress_callback` cannot cross into the child, so `isolate=True` with one raises `ValueError`, and the CLI shows no bar. `bankstract auto --isolate` also skips the "detected" line: it detects inside the child.
+- `detect()` and `redact()` are not isolated. Both read the file in the calling process.
 
 What it misses:
 
