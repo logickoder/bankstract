@@ -1,6 +1,13 @@
 # Integrity gaps
 
-Open work on `inspect()` after the first cut. Each item says what is missing, why it matters and what closes it. Rules for the feature live in [rules/integrity](rules/integrity.md).
+Open work on `inspect()` after the first cut. Closed items are listed once below and then dropped. Each open item says what is missing, why it matters and what closes it. Rules for the feature live in [rules/integrity](rules/integrity.md).
+
+## Closed
+
+- **Three checks not mutation-tested.** Breaking `font_size_outlier`, `date_out_of_order` and `date_outside_period` fails a test each.
+- **`date_outside_period` depends on the parser.** All four parsers fill the statement period on raw statements, PDF and XLSX. Only the redacted fbn sample lacks it, a redactor effect.
+- **Cost of `inspect()`.** Not a gap. The integrity checks cost 0.03s on the 58-page opay PDF and `pdf_forensics` about 0.4s. The parse dominates, and `result=` skips the second one. Isolation adds about 0.02s warm.
+- **A cover built from slivers.** The cover check now adds the area each glyph has lost across every fill, so strips that are each under a tenth of a glyph still cross the line when stacked.
 
 ## Needs data from the owner
 
@@ -22,9 +29,13 @@ Open work on `inspect()` after the first cut. Each item says what is missing, wh
 
 A forger who regenerates the file with the bank's own library and recomputes every balance passes every check. Only the bank can rule that out. Closing this needs bank-side verification, which is out of scope for bankstract.
 
-### 4. A pymupdf re-save keeps the producer
+### 4. A pymupdf re-save keeps the producer, and only some banks give it away
 
-Only tools that rewrite the producer string change it. A re-save through pymupdf, or any tool that copies the Info dictionary, leaves `unexpected_producer` silent. Candidates to close it: the trailer `/ID` pair, object numbering gaps, and unused objects left by an editor. None is tested yet. Measure each on raw statements and on re-saved copies before adding it.
+Only tools that rewrite the producer string change it. A re-save through pymupdf, or any tool that copies the Info dictionary, leaves `unexpected_producer` silent. For fbn and opay the trailer `/ID` closes it: the two halves are equal in the raw statement and differ after a pymupdf re-save, and `id_changed` fires on that. What stays open:
+
+- **Zenith and palmpay.** Their raw statements already write unequal halves, so a re-save changes nothing visible. Object numbering gaps and unused objects an editor leaves are untested candidates.
+- **One raw file per bank.** The equal-halves rule rests on a single statement each (item 1). A bank that sometimes writes them unequal would warn on genuine files.
+- **A tool that keeps the `/ID`.** An incremental save, or qpdf, leaves it alone. The incremental save is caught by `incremental_update`.
 
 ### 5. A retyped amount in the same font and size
 
@@ -37,35 +48,6 @@ Fonts, sizes and overlays apply to PDFs. For XLSX the checks are the writer name
 ### 7. Scanned or image-only statements
 
 A statement with no text layer reaches `parse()` and fails there as `unparseable`. No forensic check runs on the image. Out of scope until the OCR fallback exists.
-
-## Verification
-
-### 8. Three checks are not mutation-tested
-
-Breaking each of the producer, font, overlay, revision, mod-date and XLSX checks fails its tests. `font_size_outlier`, `date_out_of_order` and `date_outside_period` were not broken on purpose after the code settled. Do it once and record the result here.
-
-### 9. `date_outside_period` depends on the parser
-
-It fires only when the parser fills `statement_period_start` and `statement_period_end`. Check which of the four parsers do, and list the ones that don't. A parser that never fills them silently disables this check for its bank.
-
-## Cost
-
-### 10. Cost of `inspect()` on a large statement
-
-Measured on raw statements, 2026-10-11:
-
-| Bank    | Spans  | Fills | `parse` | `pdf_forensics` | `inspect` total |
-| ------- | ------ | ----- | ------- | --------------- | --------------- |
-| fbn     | 135    | 141   | 0.11s   | 0.02s           | 0.11s           |
-| zenith  | 457    | 144   | 0.24s   | 0.01s           | 0.23s           |
-| palmpay | 139    | 226   | 0.11s   | 0.01s           | 0.17s           |
-| opay    | 12,180 | 6,078 | 4.04s   | 0.56s           | 4.55s           |
-
-- **The integrity checks are cheap.** On the 58-page opay PDF the size and overlay checks take 0.03s together. `pdf_forensics` is the 0.56s: 0.20s in `get_texttrace`, 0.08s in `get_drawings`, the rest in Python loops over 172k glyphs. About 12% of the total.
-- **Parse is the cost.** 4.04s of 4.55s. That is pdfplumber extraction, not new work. `convert()` pays it too.
-- **The real problem was the second parse.** A caller who ran `convert()` or `parse()` and then `inspect()` parsed the file twice. 8s or more on a 58-page opay statement. Closed: `inspect(source, result=...)` reuses a `ParseResult` and skips the parse. Callers who don't pass one still pay it.
-- **Not worth doing.** Trimming the Python loops in `pdf_forensics` would save about 0.1s and put RTL and rotated text at risk.
-- **Out of scope here.** Speeding up opay's parse. That belongs to the parser, not to integrity.
 
 ## Deliberate false positive
 
@@ -85,10 +67,6 @@ A forger who adds over 2000 junk text runs or fills to a page switches the size 
 
 Close it once there are enough raw statements per bank to set the cap per bank, then raise the signal to an error for pages that pass a bank's own maximum by a wide margin.
 
-### 13. A cover built from slivers
-
-The cover check flags a fill that touches a tenth of one glyph. A forger can split a cover into pieces that each touch less than that, then stack enough of them to hide the glyph. It costs many fills per digit, and each one sits after the text it covers, which no real statement has. Close it by summing the covered area per glyph across fills, not testing each fill alone.
-
 ### 14. A forged column keeps its own size
 
 `font_size_outlier` compares an amount with the other amounts in its column. A forger who retypes every amount in a column at one new size leaves a column that agrees with itself. The original column is gone, so nothing disagrees. Close it by comparing a column's size with the bank's known amount size, which needs a per-bank baseline from more raw statements (see item 1).
@@ -100,7 +78,7 @@ The cover check flags a fill that touches a tenth of one glyph. A forger can spl
 - **Off by default.** A caller who forgets the flag is unprotected. A service taking uploads must pass it.
 - **No memory limit on macOS or Windows.** macOS refuses `RLIMIT_AS` (`setrlimit` raises `current limit exceeds maximum limit`), and Windows has no equivalent. A runaway child there is bounded by the time limit alone, so it can use gigabytes for up to `timeout` seconds. Close it with a job object on Windows and a polling RSS check on macOS.
 - **The Linux limit is untested here.** The test runs in CI on Ubuntu only. `memory_mb=2048` is a guess at what pymupdf needs in address space, so it could kill a genuine file or let too much through. Confirm on a real Linux run and tune it.
-- **The worker re-imports `__main__`.** `isolate=True` raises `ResourceLimitError` from a script piped on stdin (`python -`) and from a script with no `if __name__ == "__main__":` guard. Both fail closed, and the message now names a main script that could not be re-imported as one cause beside a crash or out-of-memory. It still cannot say which. Close it by having the child report a failed start, or by checking `__main__` before the first call.
+- **The worker re-imports `__main__`.** A script piped on stdin (`python -`) is now refused before a worker starts, with a message that says why and that nothing was checked. A script with no `if __name__ == "__main__":` guard still fails inside the child, and the caller sees a `ResourceLimitError` whose message lists a main script that could not be re-imported beside a crash and out-of-memory. It cannot say which. Close it by having the child report a failed start.
 - **Windows still spawns per call.** About 0.35s, and no memory limit. A fork server needs POSIX.
 - **The Linux limit baseline moved.** A forked child already holds pymupdf and pdfplumber before it sets `RLIMIT_AS`, so the limit must clear that. `test_a_small_job_runs_under_a_real_memory_limit` checks it at 1024 MB on Ubuntu, and `memory_mb=2048` is a guess that CI has not yet confirmed.
 - **The in-process gates are first lines, not bounds.** `_MAX_PAGE_CONTENT` reads the page stream only and decodes a compressed one in full first. They stop the naive crafted file. They do not stop a determined one.

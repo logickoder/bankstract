@@ -195,6 +195,7 @@ opay balances skip OWealth auto-save moves, so they don't chain. `Reconciliation
 | `unexpected_producer`   | warn     | PDF producer or XLSX writer differs from the bank's own export tool.       |
 | `modified_after_create` | warn     | PDF creation and modification dates differ.                                |
 | `unexpected_font`       | warn     | A font outside the bank's baseline.                                        |
+| `id_changed`            | warn     | The two halves of the trailer `/ID` differ, for a bank that writes them equal (fbn, opay). A tool that re-saves the file changes the second half. |
 | `font_size_outlier`     | warn     | An amount's size differs from its table column.                            |
 | `date_out_of_order`     | warn     | Rows break day order. Same-day order is ignored.                           |
 | `date_outside_period`   | warn     | A row falls outside the statement period.                                  |
@@ -209,12 +210,12 @@ A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code c
 - About 0.02s a call on Linux and macOS once the first call has started a helper process (the first costs about 0.3s). The helper imports bankstract once and forks each worker from it, and it exits with your process. Windows has no fork server, so every call spawns a child and costs about 0.35s. Off by default, like `parse()`.
 - The memory limit (`memory_mb`) is enforced on Linux only. macOS refuses `RLIMIT_AS`, and Windows has no equivalent, so both get the time limit alone.
 - `progress_callback` works with `isolate=True`: the worker sends each event up a pipe and your callback gets them in order, as they happen, and the CLI bar draws as usual. The timeout counts from the call, not from the last event. A callback that raises stops the worker. `bankstract auto --isolate` detects the bank in a worker too, so it prints the same "detected" line and the same messages as without the flag.
-- The worker re-imports your main module. Call it from a script under `if __name__ == "__main__":`. Without the guard the child re-runs your script and dies. A script piped on stdin (`python -`) cannot be re-imported at all. Both raise `ResourceLimitError`, and the message names a main script that could not be re-imported as one cause. `python -c`, a REPL, a notebook and ordinary modules work.
+- The worker re-imports your main module. Call it from a script under `if __name__ == "__main__":`. Without the guard the child re-runs your script and dies, and you get a `ResourceLimitError` whose message names a main script that could not be re-imported as one cause. A script piped on stdin (`python -`) cannot be re-imported at all, and raises a `RuntimeError` before any worker starts, saying so. `python -c`, a REPL, a notebook and ordinary modules work.
 
 What it misses:
 
 - A forger who regenerates the file with the bank's own library and recomputes every balance passes every check. Only the bank can rule that out.
-- A pymupdf re-save keeps the original producer. Word, Acrobat and online editors rewrite it.
+- A pymupdf re-save keeps the original producer. Word, Acrobat and online editors rewrite it. For fbn and opay the changed trailer `/ID` still gives it away (`id_changed`). Zenith and palmpay write unequal halves, so a re-save of theirs passes.
 - A statement that embeds an uncompressed PDF reads as extra revisions and exits 2. This is a deliberate false positive. Excluding embedded sections would let a forger hide a revision inside a fake stream.
 - A page stuffed with junk switches the size and overlay checks off for that page. `checks_skipped` says so, as a warning. Real statements stay near 300 text runs a page.
 - A retyped amount in the same font and size leaves no file signal. Reconciliation catches it unless the balances were fixed too.

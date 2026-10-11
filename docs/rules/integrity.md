@@ -22,5 +22,5 @@
 
 ## Known gaps
 
-- A pymupdf re-save keeps the original producer. Only tools that rewrite it (Word, Acrobat, online editors) change it.
+- A pymupdf re-save keeps the original producer. Only tools that rewrite it (Word, Acrobat, online editors) change it. For fbn and opay the trailer `/ID` halves are equal in a genuine file and differ after a re-save (`id_changed`). Zenith and palmpay write them unequal, so nothing marks their re-saves.
 - A retyped amount in the same font and size leaves no file signal. Reconciliation is the only check that fires, and only if the forger didn't fix the balances.
