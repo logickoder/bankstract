@@ -9,6 +9,9 @@ module restricts the untyped surface to one file.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 import pymupdf as _pymupdf  # type: ignore[import-untyped]
@@ -36,3 +39,130 @@ def rect(x0: float, y0: float, x1: float, y1: float) -> Any:
 
 def new_doc() -> Any:
     return _pymupdf.open()
+
+
+BBox = tuple[float, float, float, float]
+
+_SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
+_REVISION = re.compile(rb"startxref\s+\d+")
+
+
+@dataclass(frozen=True)
+class PdfSpan:
+    page: int  # 1-based
+    text: str
+    font: str
+    size: float
+    bbox: BBox
+    seqno: int
+
+
+@dataclass(frozen=True)
+class PdfFill:
+    page: int  # 1-based
+    bbox: BBox
+    color: tuple[float, ...]
+    seqno: int
+
+
+@dataclass(frozen=True)
+class PdfForensics:
+    producer: str
+    creation_date: str
+    mod_date: str
+    # Linearized PDFs carry a second startxref section by design. It is
+    # subtracted here.
+    revisions: int
+    spans: tuple[PdfSpan, ...]
+    fills: tuple[PdfFill, ...]
+
+    @property
+    def fonts(self) -> frozenset[str]:
+        return frozenset(s.font for s in self.spans)
+
+
+def _raw_bytes(source: Source) -> bytes:
+    if isinstance(source, Path):
+        return source.read_bytes()
+    rewind(source)
+    return source.read()
+
+
+def _revisions(raw: bytes) -> int:
+    """Revisions in a PDF file. Every one ends in `startxref <offset>`. A bare
+    "%%EOF" can sit in a string, and a forger can leave it off. The `/Prev`
+    chain would miss a revision written without a `/Prev`.
+
+    Every section counts, including one inside an uncompressed attachment.
+    Skipping sections "inside a stream body" would trust the file's own
+    `/Length`, which a forger sets. A reader finds the last `startxref` from
+    the end of the file and ignores stream boundaries, so a forged tail can
+    sit inside a fake stream and vanish from the count. The cost is a loud
+    false positive on a statement that embeds an uncompressed PDF."""
+    revisions = len(_REVISION.findall(raw))
+    # A linearized file carries a second section by design.
+    if b"/Linearized" in raw[:1024]:
+        revisions -= 1
+    return revisions
+
+
+def _bbox(raw: Any) -> BBox:
+    return (float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
+
+
+def pdf_forensics(source: Source) -> PdfForensics:
+    """Metadata, revision count, text runs and fills with draw order. Fonts
+    lose their subset prefix (`ABCDEF+Name` becomes `Name`)."""
+    raw = _raw_bytes(source)
+    revisions = _revisions(raw)
+
+    doc: Any = _pymupdf.open(stream=raw, filetype="pdf")
+    try:
+        meta: dict[str, str] = doc.metadata or {}
+        spans: list[PdfSpan] = []
+        fills: list[PdfFill] = []
+        for page in doc:
+            number: int = page.number + 1
+            for run in page.get_texttrace():
+                # The redactor blanks removed glyphs to spaces inside the run.
+                # The run's own bbox spans them, so box only what is visible.
+                visible = [c for c in run["chars"] if chr(c[0]).strip()]
+                if not visible:
+                    continue
+                spans.append(
+                    PdfSpan(
+                        page=number,
+                        text="".join(chr(c[0]) for c in run["chars"]),
+                        font=_SUBSET_PREFIX.sub("", run["font"]),
+                        size=float(run["size"]),
+                        bbox=(
+                            min(float(c[3][0]) for c in visible),
+                            min(float(c[3][1]) for c in visible),
+                            max(float(c[3][2]) for c in visible),
+                            max(float(c[3][3]) for c in visible),
+                        ),
+                        seqno=int(run["seqno"]),
+                    )
+                )
+            for path in page.get_drawings():
+                fill = path.get("fill")
+                if fill is None:
+                    continue
+                fills.append(
+                    PdfFill(
+                        page=number,
+                        bbox=_bbox(path["rect"]),
+                        color=tuple(float(c) for c in fill),
+                        seqno=int(path["seqno"]),
+                    )
+                )
+    finally:
+        doc.close()
+    return PdfForensics(
+        producer=meta.get("producer") or "",
+        creation_date=meta.get("creationDate") or "",
+        mod_date=meta.get("modDate") or "",
+        revisions=revisions,
+        spans=tuple(spans),
+        fills=tuple(fills),
+    )

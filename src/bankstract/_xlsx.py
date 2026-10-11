@@ -10,10 +10,12 @@ header byte check.
 
 from __future__ import annotations
 
+import html
+import re
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 from openpyxl.utils.exceptions import InvalidFileException  # type: ignore[import-untyped]
@@ -76,6 +78,13 @@ def _peek(source: Source, n: int) -> bytes:
         source.seek(0)
 
 
+def _reject(source: Source, exc: Exception) -> NoReturn:
+    rewind(source)
+    if is_cdfv2(source):
+        raise EncryptedSourceError("password-protected XLSX") from exc
+    raise ValueError(f"not a valid XLSX: {exc}") from exc
+
+
 @contextmanager
 def open_workbook(source: Source) -> Any:
     """Open an XLSX file read-only + data-only (formulas pre-evaluated).
@@ -87,11 +96,46 @@ def open_workbook(source: Source) -> Any:
     try:
         wb = load_workbook(handle, read_only=True, data_only=True)
     except (InvalidFileException, KeyError, zipfile.BadZipFile) as exc:
-        rewind(source)
-        if is_cdfv2(source):
-            raise EncryptedSourceError("password-protected XLSX") from exc
-        raise ValueError(f"not a valid XLSX: {exc}") from exc
+        _reject(source, exc)
     try:
         yield wb
     finally:
         wb.close()
+
+
+# The part is tiny. A cap keeps a crafted archive from costing memory.
+_PROPS_MAX_BYTES = 64 * 1024
+_APPLICATION = re.compile(
+    r"<(?:[\w-]+:)?Application(?:\s[^>]*)?>(.*?)</(?:[\w-]+:)?Application>", re.DOTALL
+)
+_CDATA = re.compile(r"(<!\[CDATA\[.*?\]\]>)", re.DOTALL)
+
+
+def _text(inner: str) -> str:
+    # CDATA is literal. Everything else may carry entities (`&amp;`, `&#71;`).
+    # No entity table is ever read, so a crafted part can't expand.
+    return "".join(
+        part[9:-3] if part.startswith("<![CDATA[") else html.unescape(part)
+        for part in _CDATA.split(inner)
+    ).strip()
+
+
+def xlsx_application(source: Source) -> str:
+    """The `Application` property, read straight from the zip. openpyxl would
+    rewrite it on load, so it can't tell a raw export from an edited one.
+    Empty when the file carries none. A tag scan, not an XML parser: the part
+    comes from an untrusted file."""
+    rewind(source)
+    handle: Any = source if hasattr(source, "read") else str(source)
+    try:
+        with zipfile.ZipFile(handle) as zf:
+            if "docProps/app.xml" not in zf.namelist():
+                return ""
+            # open().read(n) stops inflating at n bytes. read()[:n] would inflate
+            # the whole part first.
+            with zf.open("docProps/app.xml") as part:
+                xml = part.read(_PROPS_MAX_BYTES).decode("utf-8", "replace")
+    except zipfile.BadZipFile as exc:
+        _reject(source, exc)
+    match = _APPLICATION.search(xml)
+    return _text(match.group(1)) if match else ""
