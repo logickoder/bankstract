@@ -12,6 +12,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TypeVar
 
+from ._isolate import (
+    DEFAULT_MEMORY_MB,
+    DEFAULT_TIMEOUT,
+    payload_of,
+    reject_progress,
+    run_isolated,
+    source_of,
+)
 from ._progress import ProgressCallback, emit, progress_scope
 from ._source import Source, rewind
 from .parsers import all_parsers, get
@@ -127,6 +135,9 @@ def parse(
     *,
     bank: str | None = None,
     progress_callback: ProgressCallback | None = None,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> ParseResult:
     """Parse `source` into a ParseResult.
 
@@ -139,7 +150,22 @@ def parse(
     `progress_callback` receives `ProgressEvent(stage, current, total)` at
     each lifecycle point (`detect`, `open`, `extract_page` × N,
     `walk_page` × N, `done`). Wrap with `bankstract.throttle` for a CLI
-    bar; pass the raw callback for full-fidelity telemetry."""
+    bar; pass the raw callback for full-fidelity telemetry.
+
+    `isolate=True` runs the parse in a child process, for files you did not
+    make: a crafted PDF can cost gigabytes inside one extraction call, which
+    nothing in-process can stop. A child that passes `timeout` seconds, runs
+    out of memory or dies raises `ResourceLimitError`. `memory_mb` is enforced
+    on Linux only. Adds about 0.3s a call. Not with `progress_callback`."""
+    if isolate:
+        reject_progress(progress_callback)
+        return run_isolated(
+            _parse_job,
+            payload_of(normalize_source(source)),
+            bank,
+            timeout=timeout,
+            memory_mb=memory_mb,
+        )
 
     def _parse_call(parser: Parser | Redactor, src: Source) -> ParseResult:
         assert isinstance(parser, Parser)  # _dispatch contract: registry returns Parser
@@ -159,6 +185,16 @@ def parse(
         )
 
 
+def _parse_job(payload: Path | bytes, bank: str | None) -> ParseResult:
+    return parse(source_of(payload), bank=bank)
+
+
+def _convert_job(
+    payload: Path | bytes, format: OutputFormat, bank: str | None, reconcile: bool
+) -> bytes:
+    return convert(source_of(payload), format=format, bank=bank, reconcile=reconcile)
+
+
 def convert(
     source: SourceLike,
     *,
@@ -166,6 +202,9 @@ def convert(
     bank: str | None = None,
     reconcile: bool = True,
     progress_callback: ProgressCallback | None = None,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> bytes:
     """`parse` + `reconcile_result` + `serialize` in one call. Same bytes as
     the CLI. Callers that need the `ParseResult` too run the three steps
@@ -181,8 +220,23 @@ def convert(
     or a seekable binary stream (e.g. `io.BytesIO`). An unrecognised
     output `format` raises `ValueError`; a layout mismatch surfaces as
     `ParseError`; an invariant break surfaces as `ReconciliationError`.
+
+    `isolate=True` runs the whole call in a child process, as `parse()` does.
+    The exceptions above still cross, with their `bank`, `format_version` and
+    `row_index`. A child that cannot finish raises `ResourceLimitError`.
     """
     check_format(format)  # fail before the parse, not after
+    if isolate:
+        reject_progress(progress_callback)
+        return run_isolated(
+            _convert_job,
+            payload_of(normalize_source(source)),
+            format,
+            bank,
+            reconcile,
+            timeout=timeout,
+            memory_mb=memory_mb,
+        )
 
     with progress_scope(progress_callback):
         # Inner parse() gets no callback, so it neither clobbers this scope

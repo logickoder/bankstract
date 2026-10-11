@@ -13,12 +13,11 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 
 from ._api import SourceLike, normalize_source, parse
-from ._isolate import run_isolated
+from ._isolate import DEFAULT_MEMORY_MB, DEFAULT_TIMEOUT, payload_of, run_isolated, source_of
 from ._layout import AMOUNT_TOK
 from ._pymupdf import BBox, PdfFill, PdfForensics, PdfSpan, pdf_forensics
 from ._source import Source, rewind
@@ -136,8 +135,8 @@ def inspect(
     bank: str | None = None,
     result: ParseResult | None = None,
     isolate: bool = False,
-    timeout: float = 60.0,
-    memory_mb: int | None = 2048,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> IntegrityReport:
     """Collect integrity signals for `source`. A file the parser rejects is
     itself a signal: `unparseable` is an error and the file checks still run
@@ -157,19 +156,15 @@ def inspect(
     src = normalize_source(source)
     if not isolate:
         return _inspect(src, bank, result)
-    payload: Path | bytes
-    if isinstance(src, Path):
-        payload = src
-    else:
-        rewind(src)
-        payload = src.read()
-    return run_isolated(_inspect_job, payload, bank, result, timeout=timeout, memory_mb=memory_mb)
+    return run_isolated(
+        _inspect_job, payload_of(src), bank, result, timeout=timeout, memory_mb=memory_mb
+    )
 
 
 def _inspect_job(
     payload: Path | bytes, bank: str | None, result: ParseResult | None
 ) -> IntegrityReport:
-    return _inspect(BytesIO(payload) if isinstance(payload, bytes) else payload, bank, result)
+    return _inspect(source_of(payload), bank, result)
 
 
 def _inspect(src: Source, bank: str | None, result: ParseResult | None) -> IntegrityReport:

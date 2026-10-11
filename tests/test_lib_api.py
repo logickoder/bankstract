@@ -68,7 +68,8 @@ def test_parse_signature_unchanged() -> None:
     # bump the expected string deliberately, never silently.
     assert str(inspect.signature(bankstract.parse)) == (
         "(source: 'SourceLike', *, bank: 'str | None' = None, "
-        "progress_callback: 'ProgressCallback | None' = None) -> 'ParseResult'"
+        "progress_callback: 'ProgressCallback | None' = None, isolate: 'bool' = False, "
+        "timeout: 'float' = 60.0, memory_mb: 'int | None' = 2048) -> 'ParseResult'"
     )
 
 

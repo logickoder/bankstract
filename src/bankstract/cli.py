@@ -8,6 +8,7 @@ from typing import Any, get_args
 import click
 
 from . import __version__, convert, detect
+from ._isolate import DEFAULT_TIMEOUT
 from ._progress import ProgressCallback, ProgressEvent, throttle
 from ._source import Source
 from ._xlsx import sniff_format
@@ -75,6 +76,19 @@ def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
         is_flag=True,
         help="Suppress the progress bar (stderr).",
     )(f)
+    f = click.option(
+        "--isolate",
+        is_flag=True,
+        help="Run in a child process with a time limit. Use it on files you do not trust. "
+        "No progress bar.",
+    )(f)
+    f = click.option(
+        "--timeout",
+        type=click.FloatRange(min=0, min_open=True),
+        default=DEFAULT_TIMEOUT,
+        show_default=True,
+        help="Seconds the child may run. Only with --isolate.",
+    )(f)
     f = click.option("--no-reconcile", is_flag=True, help="Skip reconciliation invariant check.")(f)
     f = click.option(
         "-f",
@@ -106,9 +120,22 @@ def list_parsers_cmd() -> None:
 @main.command("auto")
 @click.argument("pdf", type=click.STRING)
 @_io_options
-def auto(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bool) -> None:
+def auto(
+    pdf: str,
+    output: str,
+    fmt: OutputFormat,
+    no_reconcile: bool,
+    quiet: bool,
+    isolate: bool,
+    timeout: float,
+) -> None:
     """Detect bank automatically and parse."""
     source = _read_source(pdf)
+    if isolate:
+        # detect() reads the file too, so it must not run here. The child
+        # detects and parses in one go.
+        _run(None, source, output, fmt, no_reconcile, quiet, isolate, timeout)
+        return
     try:
         name = detect(source)
     except ParseError as exc:
@@ -116,15 +143,23 @@ def auto(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bo
     if name is None:
         raise click.ClickException(f"no registered parser detected {pdf}")
     _info(f"detected: {name}", stdout_used=(output == "-"))
-    _run(name, source, output, fmt, no_reconcile, quiet)
+    _run(name, source, output, fmt, no_reconcile, quiet, isolate, timeout)
 
 
 def _bank_command(bank: str) -> click.Command:
     @main.command(bank)
     @click.argument("pdf", type=click.STRING)
     @_io_options
-    def cmd(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bool) -> None:
-        _run(bank, _read_source(pdf), output, fmt, no_reconcile, quiet)
+    def cmd(
+        pdf: str,
+        output: str,
+        fmt: OutputFormat,
+        no_reconcile: bool,
+        quiet: bool,
+        isolate: bool,
+        timeout: float,
+    ) -> None:
+        _run(bank, _read_source(pdf), output, fmt, no_reconcile, quiet, isolate, timeout)
 
     return cmd
 
@@ -147,23 +182,33 @@ def _check_supported(bank: str, source: Source) -> None:
 
 
 def _run(
-    bank: str,
+    bank: str | None,
     source: Source,
     output: str,
     fmt: OutputFormat,
     no_reconcile: bool,
     quiet: bool,
+    isolate: bool,
+    timeout: float,
 ) -> None:
     stdout_used = output == "-"
-    _check_supported(bank, source)
+    if bank is not None:
+        _check_supported(bank, source)
     try:
         data = convert(
             source,
             format=fmt,
             bank=bank,
             reconcile=not no_reconcile,
-            progress_callback=_progress_callback(quiet=quiet),
+            # A callback cannot reach into the child, so no bar when isolated.
+            progress_callback=None if isolate else _progress_callback(quiet=quiet),
+            isolate=isolate,
+            timeout=timeout,
         )
+    except ResourceLimitError as exc:
+        # Not a pass: a file that stops the parser is not known to be clean.
+        click.echo(f"error: {exc}", err=True)
+        sys.exit(2)
     except ParseError as exc:
         raise click.ClickException(
             f"parse error ({getattr(exc, 'format_version', 'unknown')}): {exc}"
@@ -190,7 +235,7 @@ def _run(
 @click.option(
     "--timeout",
     type=click.FloatRange(min=0, min_open=True),
-    default=60.0,
+    default=DEFAULT_TIMEOUT,
     show_default=True,
     help="Seconds the child may run. Only with --isolate.",
 )

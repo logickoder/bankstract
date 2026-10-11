@@ -7,15 +7,45 @@ from __future__ import annotations
 import multiprocessing as mp
 import sys
 from collections.abc import Callable
+from io import BytesIO
 from multiprocessing.connection import Connection
+from pathlib import Path
 from typing import Any, TypeVar
 
+from ._source import Source, rewind
 from .schema import ResourceLimitError
 
 if sys.platform != "win32":
     import resource
 
 _T = TypeVar("_T")
+
+# What every `isolate=True` entry point defaults to.
+DEFAULT_TIMEOUT = 60.0
+DEFAULT_MEMORY_MB = 2048
+
+
+def payload_of(source: Source) -> Path | bytes:
+    """A source the child can open. A stream cannot cross the process boundary,
+    so its bytes do. A path crosses as is and the child reads it."""
+    if isinstance(source, Path):
+        return source
+    rewind(source)
+    return source.read()
+
+
+def source_of(payload: Path | bytes) -> Source:
+    return BytesIO(payload) if isinstance(payload, bytes) else payload
+
+
+def reject_progress(callback: object | None) -> None:
+    # The worker is another process. A callback cannot cross, and events fired
+    # there would never reach it.
+    if callback is not None:
+        raise ValueError(
+            "progress_callback cannot run with isolate=True. The worker is a separate "
+            "process. Drop one of them."
+        )
 
 
 def _child(conn: Connection, func: Callable[..., Any], args: tuple[Any, ...], limit: int) -> None:
