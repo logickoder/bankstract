@@ -110,6 +110,8 @@ def _redact_xlsx(source: Source) -> RedactResult:
             report.redactions += n
             report.audit.append((report.pages, audit))
             emit("redact_page", report.pages, total)
+        # OPay's raw export carries the template author's name in core props.
+        wb.properties.lastModifiedBy = "Test User"
         buf = BytesIO()
         wb.save(buf)
         data = buf.getvalue()
