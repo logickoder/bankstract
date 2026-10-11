@@ -106,3 +106,19 @@ The cover check flags a fill that touches a tenth of one glyph. A forger can spl
 - **The in-process gates are first lines, not bounds.** `_MAX_PAGE_CONTENT` reads the page stream only and decodes a compressed one in full first. They stop the naive crafted file. They do not stop a determined one.
 
 Not a gap, checked: a cover drawn as an annotation. pymupdf reports annotation appearance streams through `get_drawings`, so a white Square annotation over an amount is flagged.
+
+### 16. The cover check is tuned on four banks
+
+`overlay_over_text` is an error: a fill at half opacity or more that touches a tenth of one glyph, drawn after the text. No later fill touches any text on the four banks' raw statements, so it spares them. Another generator, a print-to-PDF copy or an XLSX conversion may paint a stamp, watermark or row shade over text and raise an error on a genuine file (exit 2). Close it with raw statements from more sources, then tune per bank or demote a known-benign pattern.
+
+### 17. The fork server is shared and long-lived
+
+On Linux and macOS workers fork from a helper that imported bankstract once. Two consequences, neither tested here:
+
+- `multiprocessing` has one fork server per process. If the host app or another library already started it, `set_forkserver_preload` is ignored. Workers still run and stay isolated, but each pays the cold import (about 0.35s) and the 0.02s figure does not hold.
+- The helper keeps the code it imported. A host that reloads or upgrades bankstract in process keeps forking workers that run the old version. Restart the process, or close the helper, after a reload.
+
+### 18. `recv_bytes` has no deadline once a message begins
+
+The loop checks the deadline before each read, and the size cap bounds a message, but a read that has started waits for its bytes. The worker is our own code, which writes a whole message or dies, so a crafted file cannot make it send a partial one. A worker stopped from outside (SIGSTOP) mid-message would hold the parent. Close it with a non-blocking read loop against the deadline.
+

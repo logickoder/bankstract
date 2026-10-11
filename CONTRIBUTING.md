@@ -21,7 +21,7 @@ uv run pytest
 5. Add `tests/<bank>/test_parser.py` + `tests/<bank>/test_redactor.py`. Multi-format banks parametrize tests over both `.pdf` and `.xlsx` fixtures.
 6. Register the bank in `tests/_fixtures.py` (`FIXTURES`, `RECONCILIATION`) and `_PRECISION` in `tests/test_fixture_invariants.py`. The cross-bank tests pick it up from there.
 7. Set `has_time=True` only on rows that print a time. Never set `ParseResult.reconciliation`.
-8. Add the bank to `_BASELINES` in `integrity.py` (`pdf_producer`, `pdf_fonts`, and `xlsx_application` for XLSX) once its raw statement shows a stable signature. Read the values from `_local/statement.*`, never from the committed sample. `tests/test_integrity.py` picks the bank up from `FIXTURES` and requires its raw file to come back clean.
+8. Add the bank to `_BASELINES` in `integrity.py` (`pdf_producer`, `pdf_fonts`, and `xlsx_application` for XLSX) once its raw statement shows a stable signature. Read the values from `_local/statement.*`, never from the committed sample. `tests/test_integrity.py` picks the bank up from `FIXTURES` and requires its raw file to come back clean. Also confirm no fill is drawn over text in the raw statement: the cover check flags a tenth of a glyph at half opacity, and a stamp or watermark painted over the text would raise an error on a genuine file.
 
 ### Parser self-registration
 
