@@ -1,3 +1,4 @@
+import json
 import sys
 from collections.abc import Callable
 from io import BytesIO
@@ -10,9 +11,10 @@ from . import __version__, convert, detect
 from ._progress import ProgressCallback, ProgressEvent, throttle
 from ._source import Source
 from ._xlsx import sniff_format
+from .integrity import inspect as inspect_source
 from .parsers import all_parsers, get
 from .redactors import all_redactors
-from .schema import OutputFormat, ParseError, ReconciliationError
+from .schema import EncryptedSourceError, OutputFormat, ParseError, ReconciliationError
 
 
 def _read_source(pdf_arg: str) -> Source:
@@ -167,6 +169,36 @@ def _run(
 
     _write_bytes(data, output)
     _info(f"wrote {len(data)} bytes -> {output}", stdout_used=stdout_used)
+
+
+@main.command("inspect")
+@click.argument("pdf", type=click.STRING)
+@click.option(
+    "--bank", type=click.Choice(sorted(all_parsers())), default=None, help="Skip detection."
+)
+def inspect_cmd(pdf: str, bank: str | None) -> None:
+    """Check a statement for signs of tampering. Report JSON goes to stdout.
+    stderr gets one line per signal, with no statement text. Exits 2 when any
+    signal is an error, 0 otherwise."""
+    source = _read_source(pdf)
+    try:
+        report = inspect_source(source, bank=bank)
+    except EncryptedSourceError as exc:
+        raise click.ClickException(
+            f"{exc}. Nothing in it can be read. Save an unprotected copy and retry."
+        ) from exc
+    click.echo(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+    # stderr lands in logs. `detail` quotes the statement, so it stays in the
+    # stdout JSON, which the caller owns.
+    for signal in report.signals:
+        where = ", ".join(
+            f"{name} {value}"
+            for name, value in (("page", signal.page), ("row", signal.row))
+            if value is not None
+        )
+        click.echo(f"{signal.severity}: {signal.code}" + (f" ({where})" if where else ""), err=True)
+    if report.errors:
+        sys.exit(2)
 
 
 @main.group()
