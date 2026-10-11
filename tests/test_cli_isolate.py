@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from bankstract._progress import ProgressEvent
 from bankstract.cli import main
 
-from ._forge import ZENITH
+from ._forge import ZENITH, blank_pdf
 
 
 @pytest.mark.parametrize("command", [["zenith"], ["auto"]])
@@ -31,14 +31,45 @@ def test_a_worker_that_cannot_finish_exits_two_with_no_output(command: list[str]
     assert result.stderr.startswith("error: Worker stopped after 0.01s.")
 
 
-def test_auto_does_not_detect_in_the_parent_when_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
-    # detect() reads the file. Running it here would defeat the isolation.
-    def fail(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("detect() ran in the parent")
+def test_auto_detects_in_a_worker_when_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    # detect() reads the file, so an isolated auto must hand it to a worker.
+    seen: dict[str, object] = {}
 
-    monkeypatch.setattr("bankstract.cli.detect", fail)
+    def spy(source: object, **kwargs: object) -> str:
+        seen.update(kwargs)
+        return "zenith"
+
+    monkeypatch.setattr("bankstract.cli.detect", spy)
     result = CliRunner().invoke(main, ["auto", str(ZENITH), "-o", "-", "--isolate"])
     assert result.exit_code == 0, result.output
+    assert seen["isolate"] is True
+    assert "detected: zenith" in result.stderr
+
+
+def test_auto_says_the_same_thing_isolated_or_not_when_nothing_matches(tmp_path: Path) -> None:
+    blank = blank_pdf(tmp_path)
+    plain = CliRunner().invoke(main, ["auto", str(blank), "-o", "-"])
+    isolated = CliRunner().invoke(main, ["auto", str(blank), "-o", "-", "--isolate"])
+    assert plain.exit_code == isolated.exit_code != 0
+    assert plain.stderr == isolated.stderr
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["zenith", str(ZENITH), "-o", "-"],
+        ["auto", str(ZENITH), "-o", "-"],
+        ["inspect", str(ZENITH)],
+        ["redact", "zenith", str(ZENITH), "-"],
+    ],
+    ids=["bank", "auto", "inspect", "redact"],
+)
+def test_timeout_without_isolate_is_refused_not_ignored(args: list[str]) -> None:
+    # Nothing enforces a limit without --isolate, so a --timeout would only mislead.
+    result = CliRunner().invoke(main, [*args, "--timeout", "5"])
+    assert result.exit_code == 1
+    assert "--timeout needs --isolate" in result.stderr
+    assert result.stdout == ""
 
 
 def test_a_missing_file_is_still_a_clean_cli_error(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ import pytest
 
 from bankstract import convert, detect, parse, redact
 from bankstract._isolate import (  # pyright: ignore[reportPrivateUsage]
+    _apply_memory_limit,
     _context,
     payload_of,
     run_isolated,
@@ -29,6 +30,10 @@ from bankstract.schema import (
 
 from ._fixtures import parsed
 from ._forge import ZENITH, blank_pdf, forged_balance_pdf, form_page, locked_pdf
+
+
+def _raise_memory_error() -> None:
+    raise MemoryError
 
 
 def _hog() -> int:
@@ -324,3 +329,61 @@ def test_isolate_false_never_starts_a_worker(
 
     monkeypatch.setattr("bankstract._api.run_isolated_call", fail)
     call(ZENITH)
+
+
+def test_the_out_of_memory_message_does_not_blame_a_limit_that_was_not_set() -> None:
+    with pytest.raises(ResourceLimitError) as unset:
+        run_isolated(_raise_memory_error, timeout=30, memory_mb=None)
+    assert "None" not in str(unset.value)
+    assert "raise the memory limit" not in str(unset.value)
+    with pytest.raises(ResourceLimitError) as capped:
+        run_isolated(_raise_memory_error, timeout=30, memory_mb=512)
+    assert "more than 512 MB" in str(capped.value)
+
+
+class _FakeResource:
+    """Stands in for `resource` so the limit logic runs on any platform."""
+
+    RLIMIT_AS = 9
+    RLIM_INFINITY = -1
+
+    def __init__(self, hard: int, *, refuse: bool = False) -> None:
+        self.hard = hard
+        self.refuse = refuse
+        self.set_to: tuple[int, int] | None = None
+
+    def getrlimit(self, _which: int) -> tuple[int, int]:
+        return (self.hard, self.hard)
+
+    def setrlimit(self, _which: int, limits: tuple[int, int]) -> None:
+        if self.refuse:
+            raise ValueError("current limit exceeds maximum limit")
+        self.set_to = limits
+
+
+def test_a_limit_above_the_hard_limit_is_clamped_to_it() -> None:
+    fake = _FakeResource(hard=500 * 1024 * 1024)
+    _apply_memory_limit(2048, platform="linux", res=fake)
+    assert fake.set_to == (500 * 1024 * 1024, 500 * 1024 * 1024)
+
+
+def test_an_unlimited_hard_limit_leaves_the_requested_one() -> None:
+    fake = _FakeResource(hard=_FakeResource.RLIM_INFINITY)
+    _apply_memory_limit(2048, platform="linux", res=fake)
+    assert fake.set_to == (2048 * 1024 * 1024, 2048 * 1024 * 1024)
+
+
+def test_macos_may_refuse_the_limit_and_the_time_limit_still_holds() -> None:
+    _apply_memory_limit(2048, platform="darwin", res=_FakeResource(hard=-1, refuse=True))
+
+
+def test_linux_refusing_the_limit_is_loud_not_silently_unbounded() -> None:
+    with pytest.raises(ValueError, match="exceeds maximum"):
+        _apply_memory_limit(2048, platform="linux", res=_FakeResource(hard=-1, refuse=True))
+
+
+def test_no_memory_limit_asked_for_means_none_is_set() -> None:
+    fake = _FakeResource(hard=-1)
+    _apply_memory_limit(None, platform="linux", res=fake)
+    _apply_memory_limit(0, platform="linux", res=fake)
+    assert fake.set_to is None

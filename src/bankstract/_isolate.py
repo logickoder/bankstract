@@ -63,6 +63,27 @@ def _context() -> ForkServerContext | SpawnContext:
     return ctx
 
 
+def _apply_memory_limit(
+    memory_mb: int | None, *, platform: str = sys.platform, res: Any = None
+) -> None:
+    """Cap the child's address space at `memory_mb`, or at the hard limit if that
+    is lower, so a container's own limit cannot make the call fail. macOS refuses
+    the cap and keeps the time limit alone. Anywhere else a refusal raises: a
+    silent one would leave the call unbounded while the caller believes otherwise."""
+    if not memory_mb or platform == "win32":
+        return
+    res = resource if res is None else res
+    limit = memory_mb * 1024 * 1024
+    _, hard = res.getrlimit(res.RLIMIT_AS)
+    if hard != res.RLIM_INFINITY:
+        limit = min(limit, hard)
+    try:
+        res.setrlimit(res.RLIMIT_AS, (limit, limit))
+    except (ValueError, OSError):
+        if platform != "darwin":
+            raise
+
+
 def _child(
     conn: Connection,
     func: Callable[..., Any],
@@ -75,13 +96,7 @@ def _child(
 
     outcome: tuple[str, Any]
     try:
-        if memory_mb and sys.platform != "win32":
-            limit = memory_mb * 1024 * 1024
-            try:
-                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
-            except (ValueError, OSError):
-                # macOS refuses the limit. The time limit still holds.
-                pass
+        _apply_memory_limit(memory_mb)
         # The scope makes the child fire the events, `done` included, that an
         # in-process call would. `func` is called with no callback of its own.
         with progress_scope(send_event) if forward else nullcontext():
@@ -169,10 +184,14 @@ def run_isolated(
         proc.join(5)
     if kind == "error":
         if isinstance(value, MemoryError):
-            raise ResourceLimitError(
-                f"Worker ran out of memory. The file needs more than {memory_mb} MB to "
-                "check. Treat it as untrusted, or raise the memory limit for a file you trust."
-            ) from value
+            # With no limit set the host itself ran out, so there is none to raise.
+            advice = (
+                f"The file needs more than {memory_mb} MB to check. Treat it as untrusted, "
+                "or raise the memory limit for a file you trust."
+                if memory_mb
+                else "No limit was set, so the host ran out. Treat the file as untrusted."
+            )
+            raise ResourceLimitError(f"Worker ran out of memory. {advice}") from value
         raise value
     return value  # type: ignore[no-any-return]
 

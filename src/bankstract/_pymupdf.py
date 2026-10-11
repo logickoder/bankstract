@@ -120,6 +120,8 @@ def _revisions(raw: bytes) -> int:
 
 def _finite_run(glyphs: tuple[BBox, ...], size: float) -> bool:
     # One sum for the run: NaN or infinity anywhere makes the total non-finite.
+    # The values come from float32 (at most 3.4e38), so a sum of them cannot overflow
+    # a double. A per-value `isfinite` is exact too and measured 6x slower here.
     return math.isfinite(sum(chain.from_iterable(glyphs)) + size)
 
 
