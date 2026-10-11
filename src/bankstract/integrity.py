@@ -111,10 +111,13 @@ _BASELINES: dict[str, _Baseline] = {
 # the cluster is a summary block or stray text, not a column.
 _MIN_COLUMN_SPANS = 5
 _SIZE_TOLERANCE = 0.05
-# A fill at or above this opacity hides what it covers. Highlights sit below it.
-_OPAQUE = 0.9
-# Share of a span's box a later fill must cover to count as hiding it.
-_COVER_RATIO = 0.5
+# A fill at or above this opacity dims what it covers past reading. Highlights
+# sit below it. No later fill touches any text on the four banks' raw statements,
+# so neither threshold is tuned to spare a genuine file.
+_OPAQUE = 0.5
+# Share of one glyph's box a later fill must cover. Per glyph, not per run: a
+# cover that hides one digit leaves the run mostly uncovered.
+_COVER_RATIO = 0.1
 # Real statements top out near 300 text runs and 200 fills on a page. A crafted
 # page can hold millions. Past these bounds a page is skipped and the report
 # says so, so a page stuffed to switch the checks off leaves a warning.
@@ -436,7 +439,7 @@ def _overlays(
             for span in page_spans:
                 if span.seqno in seen or span.seqno >= fill.seqno:
                     continue
-                if _overlap(span.bbox, fill.bbox) >= _COVER_RATIO * _area(span.bbox):
+                if _overlap(span.bbox, fill.bbox) > 0 and _hides_a_glyph(span, fill):
                     seen.add(span.seqno)
                     signals.append(
                         IntegritySignal(
@@ -448,6 +451,14 @@ def _overlays(
                         )
                     )
     return signals, skipped
+
+
+def _hides_a_glyph(span: PdfSpan, fill: PdfFill) -> bool:
+    for box in span.glyphs or (span.bbox,):
+        area = _area(box)
+        if area > 0 and _overlap(box, fill.bbox) >= _COVER_RATIO * area:
+            return True
+    return False
 
 
 def _area(b: BBox) -> float:

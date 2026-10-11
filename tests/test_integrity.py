@@ -576,6 +576,35 @@ def test_a_cover_of_any_colour_is_an_error(
     assert report.errors
 
 
+def _cover_glyph(
+    tmp_path: Path, which: str, opacity: float = 1.0, fill: tuple[float, float, float] = (1, 1, 1)
+) -> IntegrityReport:
+    """Cover part of one amount: its first glyph, its left 40%, or all of it."""
+    span = balance_span()
+    x0, y0, x1, y1 = span.bbox
+    width = x1 - x0
+    right = {"first": x0 + width / 9 + 0.2, "left40": x0 + 0.4 * width, "all": x1 + 1}[which]
+
+    def edit(doc: Any, out: Path) -> None:
+        doc[span.page - 1].draw_rect(
+            (x0 - 0.2, y0, right, y1), color=None, fill=fill, fill_opacity=opacity
+        )
+        doc.save(str(out))
+
+    return _forge(tmp_path, edit)
+
+
+@pytest.mark.parametrize("which", ["first", "left40", "all"])
+def test_covering_part_of_an_amount_is_an_error(tmp_path: Path, which: str) -> None:
+    # Hide one digit and type another over it. The run is mostly uncovered.
+    assert "overlay_over_text" in _codes(_cover_glyph(tmp_path, which))
+
+
+@pytest.mark.parametrize("opacity", [0.89, 0.7, 0.55])
+def test_a_nearly_opaque_cover_is_an_error(tmp_path: Path, opacity: float) -> None:
+    assert "overlay_over_text" in _codes(_cover_glyph(tmp_path, "all", opacity, (0.95, 0.95, 0.95)))
+
+
 def test_a_translucent_highlight_is_not_a_cover(tmp_path: Path) -> None:
     assert "overlay_over_text" not in _codes(_cover_last_run(tmp_path, (1, 1, 0), 0.3))
 

@@ -56,6 +56,9 @@ class PdfSpan:
     size: float
     bbox: BBox
     seqno: int
+    # Boxes of the visible glyphs. A cover that hides one digit leaves the run's
+    # own box mostly uncovered, so the cover check works glyph by glyph.
+    glyphs: tuple[BBox, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -145,14 +148,15 @@ def pdf_forensics(source: Source) -> PdfForensics:
                 visible = [c for c in run["chars"] if chr(c[0]).strip()]
                 if not visible:
                     continue
+                glyphs = tuple(_bbox(c[3]) for c in visible)
                 box: BBox = (
-                    min(float(c[3][0]) for c in visible),
-                    min(float(c[3][1]) for c in visible),
-                    max(float(c[3][2]) for c in visible),
-                    max(float(c[3][3]) for c in visible),
+                    min(g[0] for g in glyphs),
+                    min(g[1] for g in glyphs),
+                    max(g[2] for g in glyphs),
+                    max(g[3] for g in glyphs),
                 )
                 size = float(run["size"])
-                if not (_finite(box) and math.isfinite(size)):
+                if not (all(_finite(g) for g in glyphs) and math.isfinite(size)):
                     unreadable += 1
                     continue
                 spans.append(
@@ -163,6 +167,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
                         size=size,
                         bbox=box,
                         seqno=int(run["seqno"]),
+                        glyphs=glyphs,
                     )
                 )
             for path in page.get_drawings():
