@@ -4,6 +4,7 @@ import operator
 import os
 import sys
 import time
+import zipfile
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
@@ -15,6 +16,7 @@ from bankstract import convert, detect, parse, redact
 from bankstract._isolate import (  # pyright: ignore[reportPrivateUsage]
     _apply_memory_limit,
     _context,
+    _importable,
     payload_of,
     run_isolated,
     source_of,
@@ -407,3 +409,24 @@ def test_a_main_with_no_file_still_runs_a_worker(monkeypatch: pytest.MonkeyPatch
     # `python -c`, a REPL and a notebook have no main file.
     monkeypatch.delattr(sys.modules["__main__"], "__file__", raising=False)
     assert run_isolated(operator.add, 1, 2, timeout=30) == 3
+
+
+def test_a_main_inside_a_zip_archive_is_importable(tmp_path: Path) -> None:
+    # A Windows console script runs `__main__` from inside the .exe, a zip. The
+    # path is not a file, but its parent is, and a child can import it.
+    archive = tmp_path / "tool.exe"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("__main__.py", "")
+    assert _importable(str(archive / "__main__.py"))
+
+
+def test_a_real_file_is_importable(tmp_path: Path) -> None:
+    script = tmp_path / "run.py"
+    script.write_text("")
+    assert _importable(str(script))
+
+
+@pytest.mark.parametrize("name", ["<stdin>", "missing.py"])
+def test_a_name_with_no_file_or_archive_behind_it_is_not(tmp_path: Path, name: str) -> None:
+    assert not _importable(name)
+    assert not _importable(str(tmp_path / name))

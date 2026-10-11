@@ -110,13 +110,22 @@ def _child(
         conn.close()
 
 
+def _importable(path: str) -> bool:
+    """Whether a child can re-import `__main__` from `path`: a file, or a module
+    inside a zip archive. A Windows console script (`pytest.exe`,
+    `bankstract.exe`) runs `__main__` from inside the .exe, which is a zip, so
+    the path itself is not a file but a parent is."""
+    p = Path(path)
+    return p.exists() or any(parent.is_file() for parent in p.parents)
+
+
 def _check_main_importable() -> None:
     """A child re-imports `__main__` from its file. A script piped on stdin names
     `<stdin>`, which does not exist, so the child would die and the caller would
     see only a crash. Say so before anything starts. `python -c`, a REPL and a
     notebook have no file and work."""
     path = getattr(sys.modules.get("__main__"), "__file__", None)
-    if path and not Path(path).exists():
+    if path and not _importable(path):
         raise RuntimeError(
             f"Cannot start a worker. This script ({path}) cannot be re-imported by a "
             'child process. Save it to a file and run that, under an `if __name__ == "__main__":` '
