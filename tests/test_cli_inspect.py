@@ -73,8 +73,9 @@ def test_isolated_run_matches_in_process() -> None:
 
 
 def test_a_worker_that_cannot_finish_exits_two_with_no_report() -> None:
-    # Startup alone takes about 0.3s, so this limit cannot be met.
-    result = CliRunner().invoke(main, ["inspect", str(ZENITH), "--isolate", "--timeout", "0.05"])
+    # Forking a warm worker takes about 0.02s and the parse takes longer, so this
+    # limit cannot be met.
+    result = CliRunner().invoke(main, ["inspect", str(ZENITH), "--isolate", "--timeout", "0.01"])
     assert result.exit_code == 2
     assert result.stdout == ""
-    assert result.stderr.startswith("error: Worker stopped after 0.05s.")
+    assert result.stderr.startswith("error: Worker stopped after 0.01s.")

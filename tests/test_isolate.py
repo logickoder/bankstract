@@ -12,7 +12,12 @@ from typing import Any
 import pytest
 
 from bankstract import convert, detect, parse, redact
-from bankstract._isolate import run_isolated
+from bankstract._isolate import (  # pyright: ignore[reportPrivateUsage]
+    _context,
+    payload_of,
+    run_isolated,
+    source_of,
+)
 from bankstract._progress import ProgressEvent, emit
 from bankstract.integrity import inspect
 from bankstract.schema import (
@@ -27,7 +32,13 @@ from ._forge import ZENITH, blank_pdf, forged_balance_pdf, form_page, locked_pdf
 
 
 def _hog() -> int:
-    return len(bytearray(1024 * 1024 * 1024))
+    return len(bytearray(3 * 1024 * 1024 * 1024))
+
+
+def test_workers_fork_from_a_warm_server_where_the_os_has_one() -> None:
+    # A spawned child re-imports the package and costs about 0.35s. A forked one
+    # costs about 0.02s. Windows has no fork server and spawns.
+    assert _context().get_start_method() == ("spawn" if sys.platform == "win32" else "forkserver")
 
 
 def test_returns_the_result() -> None:
@@ -54,7 +65,14 @@ def test_a_worker_that_dies_is_not_a_result() -> None:
 @pytest.mark.skipif(sys.platform != "linux", reason="macOS refuses RLIMIT_AS")
 def test_memory_limit_kills_a_hog() -> None:
     with pytest.raises(ResourceLimitError, match="out of memory"):
-        run_isolated(_hog, timeout=60, memory_mb=300)
+        run_isolated(_hog, timeout=60, memory_mb=1024)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="macOS refuses RLIMIT_AS")
+def test_a_small_job_runs_under_a_real_memory_limit() -> None:
+    # The child holds pymupdf and pdfplumber before it starts. A limit below that
+    # would kill every call, and the hog test above would pass for the wrong reason.
+    assert len(run_isolated(_return_big, 1_000_000, timeout=30, memory_mb=1024)) == 1_000_000
 
 
 def test_isolated_inspect_matches_in_process() -> None:
@@ -86,10 +104,18 @@ def test_isolated_parse_matches_in_process() -> None:
     assert parse(ZENITH, bank="zenith", isolate=True) == parse(ZENITH, bank="zenith")
 
 
-def test_isolated_parse_detects_and_reads_a_stream() -> None:
-    result = parse(BytesIO(ZENITH.read_bytes()), isolate=True)
-    assert result.bank == "zenith"
-    assert result.transactions == parsed("zenith", ZENITH).transactions
+def test_a_stream_crosses_as_bytes_and_a_path_as_itself() -> None:
+    # The stream branch is the same for every entry point, so one spawned test
+    # (inspect, above) covers it and the rest need no worker.
+    data = ZENITH.read_bytes()
+    midway = BytesIO(data)
+    midway.read(10)
+    assert payload_of(midway) == data  # read from the start, not the cursor
+    restored = source_of(payload_of(BytesIO(data)))
+    assert isinstance(restored, BytesIO)
+    assert restored.read() == data
+    assert payload_of(ZENITH) is ZENITH
+    assert source_of(ZENITH) is ZENITH
 
 
 @pytest.mark.parametrize("fmt", ["csv", "json"])
@@ -122,13 +148,15 @@ def test_reconciliation_errors_keep_their_attributes_across_the_boundary(tmp_pat
     assert str(isolated.value) == str(plain.value)
 
 
-def test_a_resource_limit_is_a_parse_error() -> None:
-    assert issubclass(ResourceLimitError, ParseError)
+def test_a_resource_limit_is_not_a_parse_error() -> None:
+    # `except ParseError` skips files the parser cannot read. A file that stopped
+    # the checker must not be skipped with them.
+    assert not issubclass(ResourceLimitError, ParseError)
+    assert issubclass(ResourceLimitError, Exception)
 
 
 def test_isolated_detect_matches_in_process() -> None:
     assert detect(ZENITH, isolate=True) == detect(ZENITH) == "zenith"
-    assert detect(BytesIO(ZENITH.read_bytes()), isolate=True) == "zenith"
 
 
 def test_isolated_redact_matches_in_process() -> None:
@@ -257,8 +285,9 @@ RUNAWAY_CALLS: dict[str, Callable[[Path], object]] = {
     "parse": lambda p: parse(p, bank="zenith", isolate=True, timeout=1),
     "convert": lambda p: convert(p, bank="zenith", isolate=True, timeout=1),
     "detect": lambda p: detect(p, isolate=True, timeout=1),
-    "redact": lambda p: redact(p, bank="zenith", isolate=True, timeout=1),
 }
+# Not redact: it does not walk a form's text, so this page costs it 0.85s, not the
+# 10s parse and convert pay or the 21s detect pays. Its worker is the same one.
 
 
 @pytest.mark.parametrize("call", RUNAWAY_CALLS.values(), ids=RUNAWAY_CALLS.keys())

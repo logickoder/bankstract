@@ -22,12 +22,13 @@ def test_isolated_output_matches_in_process(command: list[str]) -> None:
 
 @pytest.mark.parametrize("command", [["zenith"], ["auto"]])
 def test_a_worker_that_cannot_finish_exits_two_with_no_output(command: list[str]) -> None:
-    # Startup alone takes about 0.3s, so this limit cannot be met.
-    args = [*command, str(ZENITH), "-o", "-", "--isolate", "--timeout", "0.05"]
+    # Forking a warm worker takes about 0.02s and the parse takes longer, so this
+    # limit cannot be met.
+    args = [*command, str(ZENITH), "-o", "-", "--isolate", "--timeout", "0.01"]
     result = CliRunner().invoke(main, args)
     assert result.exit_code == 2
     assert result.stdout == ""
-    assert result.stderr.startswith("error: Worker stopped after 0.05s.")
+    assert result.stderr.startswith("error: Worker stopped after 0.01s.")
 
 
 def test_auto_does_not_detect_in_the_parent_when_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,10 +62,10 @@ def test_isolated_redact_writes_the_same_report(tmp_path: Path) -> None:
 
 def test_a_redact_worker_that_cannot_finish_exits_two_and_writes_nothing(tmp_path: Path) -> None:
     out = tmp_path / "out.pdf"
-    args = ["redact", "zenith", str(ZENITH), str(out), "--isolate", "--timeout", "0.05"]
+    args = ["redact", "zenith", str(ZENITH), str(out), "--isolate", "--timeout", "0.01"]
     result = CliRunner().invoke(main, args)
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: Worker stopped after 0.05s.")
+    assert result.stderr.startswith("error: Worker stopped after 0.01s.")
     assert not out.exists()
 
 

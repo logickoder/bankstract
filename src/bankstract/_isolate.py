@@ -1,6 +1,10 @@
 """Run one call in a child process with a time limit and, where the OS allows,
 a memory limit. A crafted PDF can cost gigabytes inside one mupdf call, and no
-in-process code can interrupt that call. A child can be killed."""
+in-process code can interrupt that call. A child can be killed.
+
+On Linux and macOS each child is forked from a server that already imported
+bankstract, so a call costs about 0.02s once the server is up. A spawned child
+re-imports the package and costs about 0.35s, which is what Windows gets."""
 
 from __future__ import annotations
 
@@ -10,8 +14,11 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
+from functools import cache
 from io import BytesIO
 from multiprocessing.connection import Connection
+from multiprocessing.context import ForkServerContext, SpawnContext
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -45,11 +52,22 @@ def source_of(payload: Path | bytes) -> Source:
     return BytesIO(payload) if isinstance(payload, bytes) else payload
 
 
+@cache
+def _context() -> ForkServerContext | SpawnContext:
+    if sys.platform == "win32":
+        return mp.get_context("spawn")
+    ctx = mp.get_context("forkserver")
+    # Set once, before the first child starts the server. The server imports the
+    # package then, and every child forks from that warm state.
+    ctx.set_forkserver_preload(["bankstract"])
+    return ctx
+
+
 def _child(
     conn: Connection,
     func: Callable[..., Any],
     args: tuple[Any, ...],
-    limit: int,
+    memory_mb: int | None,
     forward: bool,
 ) -> None:
     def send_event(event: ProgressEvent) -> None:
@@ -57,7 +75,8 @@ def _child(
 
     outcome: tuple[str, Any]
     try:
-        if limit and sys.platform != "win32":
+        if memory_mb and sys.platform != "win32":
+            limit = memory_mb * 1024 * 1024
             try:
                 resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
             except (ValueError, OSError):
@@ -77,6 +96,43 @@ def _child(
         conn.close()
 
 
+def _ignore(_event: ProgressEvent) -> None:
+    pass
+
+
+def _next_message(
+    receiver: Connection, proc: BaseProcess, deadline: float, timeout: float
+) -> tuple[str, Any]:
+    """One message from the child: `("progress", event)`, `("ok", result)` or
+    `("error", exception)`. Raises `ResourceLimitError` past the deadline, on a
+    child that died, and on a message over the size cap."""
+    # Check the deadline on its own. After it passes, poll(0) is True whenever the
+    # pipe holds anything, so a child that keeps it full would never time out.
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not receiver.poll(remaining):
+        raise ResourceLimitError(
+            f"Worker stopped after {timeout:g}s. The file took longer than the limit "
+            "to check. Treat it as untrusted, or raise the timeout for a file you trust."
+        )
+    try:
+        message: tuple[str, Any] = pickle.loads(receiver.recv_bytes(_MAX_MESSAGE))  # noqa: S301
+    except EOFError:
+        proc.join(1)
+        raise ResourceLimitError(
+            f"Worker ended with exit code {proc.exitcode} and no result. It crashed, ran out "
+            "of memory, or could not re-import your main script: run that from a file, under "
+            'an `if __name__ == "__main__":` guard. Treat the file as untrusted.'
+        ) from None
+    except OSError as exc:
+        if "bad message length" not in str(exc):
+            raise
+        raise ResourceLimitError(
+            f"Worker sent back more than {_MAX_MESSAGE / 2**20:g} MB. The file produced "
+            "a result too large to accept. Treat it as untrusted."
+        ) from exc
+    return message
+
+
 def run_isolated(
     func: Callable[..., _T],
     *args: Any,
@@ -84,7 +140,7 @@ def run_isolated(
     memory_mb: int | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> _T:
-    """Call `func(*args)` in a spawned child. Raises `ResourceLimitError` when
+    """Call `func(*args)` in a child process. Raises `ResourceLimitError` when
     the child passes `timeout` seconds, runs out of memory or dies without a
     result. An exception `func` raises is re-raised here. `memory_mb` is
     enforced on Linux only: macOS and Windows get the time limit alone.
@@ -92,45 +148,20 @@ def run_isolated(
     `on_progress` receives the child's progress events here, in order, as they
     happen. The timeout counts from the call, not from the last event. An
     exception `on_progress` raises stops the child and propagates."""
-    ctx = mp.get_context("spawn")
+    ctx = _context()
     receiver, sender = ctx.Pipe(duplex=False)
-    limit = memory_mb * 1024 * 1024 if memory_mb else 0
     proc = ctx.Process(
-        target=_child, args=(sender, func, args, limit, on_progress is not None), daemon=True
+        target=_child, args=(sender, func, args, memory_mb, on_progress is not None), daemon=True
     )
+    deliver = on_progress or _ignore
     deadline = time.monotonic() + timeout
     proc.start()
     sender.close()
     try:
-        while True:
-            # Check the deadline on its own. After it passes, poll(0) is True
-            # whenever the pipe holds anything, so a child that keeps it full
-            # would never reach the timeout branch.
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not receiver.poll(remaining):
-                raise ResourceLimitError(
-                    f"Worker stopped after {timeout:g}s. The file took longer than the limit "
-                    "to check. Treat it as untrusted, or raise the timeout for a file you trust."
-                )
-            try:
-                kind, value = pickle.loads(receiver.recv_bytes(_MAX_MESSAGE))  # noqa: S301
-            except EOFError:
-                proc.join(1)
-                raise ResourceLimitError(
-                    f"Worker ended with exit code {proc.exitcode} and no result. It crashed or "
-                    "ran out of memory. Treat the file as untrusted."
-                ) from None
-            except OSError as exc:
-                if "bad message length" not in str(exc):
-                    raise
-                raise ResourceLimitError(
-                    f"Worker sent back more than {_MAX_MESSAGE / 2**20:g} MB. The file produced "
-                    "a result too large to accept. Treat it as untrusted."
-                ) from exc
-            if kind != "progress":
-                break
-            if on_progress is not None:
-                on_progress(value)
+        kind, value = _next_message(receiver, proc, deadline, timeout)
+        while kind == "progress":
+            deliver(value)
+            kind, value = _next_message(receiver, proc, deadline, timeout)
     finally:
         receiver.close()
         if proc.is_alive():

@@ -149,10 +149,14 @@ class ParseError(Exception):
         self.bank = bank
 
 
-class ResourceLimitError(ParseError):
+class ResourceLimitError(Exception):
     """A check ran in a worker process and the worker did not finish: it passed
     its time limit, ran out of memory, or died. The file is not known to be
-    clean. Treat it as untrusted, never as a pass."""
+    clean. Treat it as untrusted, never as a pass.
+
+    Not a `ParseError`. A caller who skips files the parser cannot read with
+    `except ParseError` must not skip these: the file stopped the checker, and
+    that says nothing about its layout."""
 
 
 class EncryptedSourceError(ParseError):
