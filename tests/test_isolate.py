@@ -296,6 +296,16 @@ def _emit_forever() -> None:
         time.sleep(0.1)
 
 
+def _emit_flood() -> None:
+    # No sleep: events arrive faster than the parent can handle them.
+    while True:
+        emit("step", 1, 10**9)
+
+
+def _return_big(size: int) -> bytes:
+    return b"x" * size
+
+
 def _emit_then_touch(marker: str) -> None:
     emit("step", 1, 2)
     time.sleep(2)
@@ -336,6 +346,27 @@ def test_the_timeout_holds_while_events_keep_arriving() -> None:
         run_isolated(_emit_forever, timeout=1, on_progress=events.append)
     assert time.perf_counter() - start < 10
     assert len(events) >= 3  # the stream was live, and it still ended at the limit
+
+
+def test_a_flood_of_events_cannot_outrun_the_timeout() -> None:
+    # Past the deadline poll(0) is True whenever the pipe holds anything, so a child
+    # that keeps it full used to hold the parent forever.
+    events: list[ProgressEvent] = []
+    start = time.perf_counter()
+    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
+        run_isolated(_emit_flood, timeout=1, on_progress=events.append)
+    assert time.perf_counter() - start < 10
+    assert len(events) > 100  # it really was a flood
+
+
+def test_a_result_over_the_size_cap_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bankstract._isolate._MAX_MESSAGE", 1_000_000)
+    with pytest.raises(ResourceLimitError, match="a result too large to accept"):
+        run_isolated(_return_big, 5_000_000, timeout=30)
+
+
+def test_a_result_under_the_size_cap_comes_back() -> None:
+    assert len(run_isolated(_return_big, 2_000_000, timeout=30)) == 2_000_000
 
 
 def test_a_callback_that_raises_kills_the_worker(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ in-process code can interrupt that call. A child can be killed."""
 from __future__ import annotations
 
 import multiprocessing as mp
+import pickle
 import sys
 import time
 from collections.abc import Callable
@@ -26,6 +27,12 @@ _T = TypeVar("_T")
 # What every `isolate=True` entry point defaults to.
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MEMORY_MB = 2048
+
+# Largest single message the parent will read from the child, a result or one
+# event. recv() has no deadline once a message starts, so an unbounded one could
+# hold the parent past its timeout. The biggest genuine result is a redacted
+# copy of the input, never near this.
+_MAX_MESSAGE = 512 * 1024 * 1024
 
 
 def payload_of(source: Source) -> Path | bytes:
@@ -99,19 +106,30 @@ def run_isolated(
     sender.close()
     try:
         while True:
-            if not receiver.poll(max(0.0, deadline - time.monotonic())):
+            # Check the deadline on its own. After it passes, poll(0) is True
+            # whenever the pipe holds anything, so a child that keeps it full
+            # would never reach the timeout branch.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not receiver.poll(remaining):
                 raise ResourceLimitError(
                     f"Worker stopped after {timeout:g}s. The file took longer than the limit "
                     "to check. Treat it as untrusted, or raise the timeout for a file you trust."
                 )
             try:
-                kind, value = receiver.recv()
+                kind, value = pickle.loads(receiver.recv_bytes(_MAX_MESSAGE))  # noqa: S301
             except EOFError:
                 proc.join(1)
                 raise ResourceLimitError(
                     f"Worker ended with exit code {proc.exitcode} and no result. It crashed or "
                     "ran out of memory. Treat the file as untrusted."
                 ) from None
+            except OSError as exc:
+                if "bad message length" not in str(exc):
+                    raise
+                raise ResourceLimitError(
+                    f"Worker sent back more than {_MAX_MESSAGE / 2**20:g} MB. The file produced "
+                    "a result too large to accept. Treat it as untrusted."
+                ) from exc
             if kind != "progress":
                 break
             if on_progress is not None:
