@@ -331,16 +331,27 @@ def _pdf_signals(forensics: PdfForensics, bank: str | None) -> list[IntegritySig
         )
 
     halves = forensics.id_halves
-    if baseline.pdf_id_halves_equal and halves is not None and halves[0] != halves[1]:
-        signals.append(
-            IntegritySignal(
-                "id_changed",
-                "warn",
-                f"The two halves of the trailer /ID differ. A {bank} export writes them equal, "
-                "and a tool that re-saves the file changes the second. "
-                "Ask for the original from the bank.",
+    if baseline.pdf_id_halves_equal:
+        if halves is None:
+            signals.append(
+                IntegritySignal(
+                    "id_changed",
+                    "warn",
+                    f"The trailer /ID is missing or unreadable. A {bank} export writes one. "
+                    "A tool that rewrote the file may have dropped it. "
+                    "Ask for the original from the bank.",
+                )
             )
-        )
+        elif halves[0] != halves[1]:
+            signals.append(
+                IntegritySignal(
+                    "id_changed",
+                    "warn",
+                    f"The two halves of the trailer /ID differ. A {bank} export writes them equal, "
+                    "and a tool that re-saves the file changes the second. "
+                    "Ask for the original from the bank.",
+                )
+            )
 
     allowed = baseline.pdf_fonts
     if allowed is not None:

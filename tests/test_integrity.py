@@ -18,6 +18,7 @@ from bankstract._pymupdf import (  # pyright: ignore[reportPrivateUsage]
     PdfSpan,
     _finite,
     _finite_run,
+    _id_halves,
     _revisions,
     new_doc,
     open_doc,
@@ -297,6 +298,23 @@ def test_a_resave_changes_the_id_halves_a_bank_writes_equal(tmp_path: Path, bank
     assert "id_changed" in _codes(inspect(resaved, bank=bank, result=result))
 
 
+def test_every_resave_is_flagged_however_mupdf_writes_the_new_id(tmp_path: Path) -> None:
+    # mupdf writes the random second half as a literal string instead of hex when
+    # its bytes happen to be printable, about one save in forty. A reader that only
+    # understood hex missed those saves, and CI hit one on a single runner.
+    result = parsed("opay", sample("opay"))
+    genuine = equal_id_copy(sample("opay"), tmp_path / "genuine.pdf")
+    missed = 0
+    for i in range(150):
+        out = tmp_path / f"resaved{i}.pdf"
+        doc: Any = open_doc(genuine)
+        doc.save(str(out))
+        doc.close()
+        if "id_changed" not in _codes(inspect(out, bank="opay", result=result)):
+            missed += 1
+    assert missed == 0
+
+
 @pytest.mark.parametrize("bank", ["zenith", "palmpay"])
 def test_a_bank_that_writes_unequal_halves_is_not_checked(tmp_path: Path, bank: str) -> None:
     resaved = tmp_path / "resaved.pdf"
@@ -308,9 +326,31 @@ def test_a_bank_that_writes_unequal_halves_is_not_checked(tmp_path: Path, bank: 
     )
 
 
-def test_a_file_with_no_hex_id_pair_is_not_checked() -> None:
+def test_a_missing_id_is_flagged_where_the_bank_always_writes_one() -> None:
     forensics = PdfForensics("", "", "", 1, (), (), id_halves=None)
-    assert "id_changed" not in {s.code for s in _pdf_signals(forensics, "fbn")}
+    signals = [s for s in _pdf_signals(forensics, "fbn") if s.code == "id_changed"]
+    assert len(signals) == 1
+    assert "missing or unreadable" in signals[0].detail
+    assert not [s for s in _pdf_signals(forensics, "zenith") if s.code == "id_changed"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("[<AABB><aabb>]", ("<aabb>", "<aabb>")),
+        ("[<aabb><ccdd>]", ("<aabb>", "<ccdd>")),
+        ("[<aabb>(plain text id)]", ("<aabb>", "(plain text id)")),
+        ("[(Same)(same)]", ("(Same)", "(same)")),  # literals are case-sensitive
+        ("[(a\\)b)(c)]", ("(a\\)b)", "(c)")),  # an escaped paren does not end the string
+        ("null", None),
+        ("[<aabb>]", None),
+        ("[<aabb><ccdd><eeff>]", None),
+    ],
+)
+def test_the_id_pair_is_read_as_mupdf_prints_it(
+    value: str, expected: tuple[str, str] | None
+) -> None:
+    assert _id_halves(value) == expected
 
 
 def test_file_that_will_not_open_for_the_file_checks_is_reported(

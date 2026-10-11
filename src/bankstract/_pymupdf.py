@@ -46,7 +46,8 @@ BBox = tuple[float, float, float, float]
 
 _SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
 _FIRST_PAGE_SECTION = re.compile(rb"startxref\s+0(?!\d)")
-_HEX_STRING = re.compile(r"<([0-9A-Fa-f]*)>")
+# One /ID element as mupdf prints it: hex, or a literal string with escapes.
+_ID_ELEMENT = re.compile(r"<[0-9A-Fa-f]*>|\((?:\\.|[^\\()])*\)", re.DOTALL)
 # Decoded content stream of one page. Real statement pages top out near 36 KB. A
 # crafted page of 400k one-glyph runs is 14 MB and costs 700 MB to extract, about
 # 680 times the file. Checked before extraction: a cap on runs applied after it
@@ -89,7 +90,7 @@ class PdfForensics:
     unreadable: int = 0
     # Pages whose content was too large to extract. 1-based.
     oversized: tuple[int, ...] = ()
-    # The trailer /ID pair as lowercase hex, or None when absent or not two hex strings.
+    # The trailer /ID pair as mupdf prints it, or None when absent or not two strings.
     id_halves: tuple[str, str] | None = None
 
     @property
@@ -121,6 +122,19 @@ def _revisions(raw: bytes) -> int:
     return revisions
 
 
+def _id_halves(value: str) -> tuple[str, str] | None:
+    """The two elements of a trailer /ID. mupdf prints a string from its decoded
+    bytes, as hex or as a literal when the bytes are printable, so two equal
+    elements print the same and the text compares directly. A random second half
+    comes out literal about one time in forty, which a hex-only reader misses."""
+    elements = _ID_ELEMENT.findall(value)
+    if len(elements) != 2:
+        return None
+    # Hex is case-blind. A literal string is not, so only hex is lowercased.
+    first, second = (e.lower() if e.startswith("<") else e for e in elements)
+    return first, second
+
+
 def _finite_run(glyphs: tuple[BBox, ...], size: float) -> bool:
     # One sum for the run: NaN or infinity anywhere makes the total non-finite.
     # The values come from float32 (at most 3.4e38), so a sum of them cannot overflow
@@ -143,8 +157,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
     doc: Any = _pymupdf.open(stream=raw, filetype="pdf")
     try:
         meta: dict[str, str] = doc.metadata or {}
-        halves = _HEX_STRING.findall(doc.xref_get_key(-1, "ID")[1])
-        id_halves = (halves[0].lower(), halves[1].lower()) if len(halves) == 2 else None
+        id_halves = _id_halves(doc.xref_get_key(-1, "ID")[1])
         spans: list[PdfSpan] = []
         fills: list[PdfFill] = []
         unreadable = 0
