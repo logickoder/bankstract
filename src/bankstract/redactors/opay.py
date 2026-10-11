@@ -22,6 +22,7 @@ from io import BytesIO
 from typing import Any
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
+from openpyxl.packaging.custom import CustomPropertyList  # type: ignore[import-untyped]
 
 from .._layout import classify
 from .._progress import emit
@@ -96,6 +97,31 @@ def _xlsx_redact_sheet(ws: Any, audit: list[str]) -> int:
     return n
 
 
+def scrub_properties(wb: Any) -> None:
+    """openpyxl writes back every property it loads. OPay's raw export carries
+    the template author's name in `lastModifiedBy`, and any of these can hold a
+    name, so rewrite them all. The WPS build and integrity values in the custom
+    part go too: nothing here says what they identify."""
+    props = wb.properties
+    props.creator = "Test User"
+    props.lastModifiedBy = "Test User"
+    for field in (
+        "title",
+        "subject",
+        "description",
+        "keywords",
+        "category",
+        "identifier",
+        "contentStatus",
+        "language",
+        "version",
+        "revision",
+        "lastPrinted",
+    ):
+        setattr(props, field, None)
+    wb.custom_doc_props = CustomPropertyList()
+
+
 def _redact_xlsx(source: Source) -> RedactResult:
     rewind(source)
     handle: Any = source if hasattr(source, "read") else str(source)
@@ -110,8 +136,7 @@ def _redact_xlsx(source: Source) -> RedactResult:
             report.redactions += n
             report.audit.append((report.pages, audit))
             emit("redact_page", report.pages, total)
-        # OPay's raw export carries the template author's name in core props.
-        wb.properties.lastModifiedBy = "Test User"
+        scrub_properties(wb)
         buf = BytesIO()
         wb.save(buf)
         data = buf.getvalue()
