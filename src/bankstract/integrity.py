@@ -26,6 +26,7 @@ from .schema import EncryptedSourceError, ParseError, ParseResult, Reconciliatio
 Severity = Literal["warn", "error"]
 SignalCode = Literal[
     "unparseable",
+    "checks_skipped",
     "reconciliation_failed",
     "incremental_update",
     "modified_after_create",
@@ -113,7 +114,13 @@ _SIZE_TOLERANCE = 0.05
 _WHITE = 0.95
 # Share of a span's box a later white fill must cover to count as hiding it.
 _COVER_RATIO = 0.5
-_GRID = 50.0
+# Real statements top out near 300 text runs and 200 fills on a page. A crafted
+# page can hold millions. Past these bounds a page is skipped and the report
+# says so, so a page stuffed to switch the checks off leaves a warning.
+_MAX_PAGE_OBJECTS = 2_000
+# Span and white-fill pairs compared across the whole file. Opay's 58 pages
+# use about 1.2 million.
+_OVERLAY_BUDGET = 20_000_000
 
 
 def inspect(
@@ -300,8 +307,31 @@ def _pdf_signals(forensics: PdfForensics, bank: str) -> list[IntegritySignal]:
                 )
             )
 
-    signals.extend(_size_outliers(forensics.spans))
-    signals.extend(_overlays(forensics.spans, forensics.fills))
+    whites = [f for f in forensics.fills if _is_white(f)]
+    crowded = {
+        page
+        for counts in (Counter(s.page for s in forensics.spans), Counter(f.page for f in whites))
+        for page, n in counts.items()
+        if n > _MAX_PAGE_OBJECTS
+    }
+    spans = tuple(s for s in forensics.spans if s.page not in crowded)
+    whites = [f for f in whites if f.page not in crowded]
+
+    signals.extend(_size_outliers(spans))
+    overlays, over_budget = _overlays(spans, whites)
+    signals.extend(overlays)
+    skipped = crowded | over_budget
+    if skipped:
+        signals.append(
+            IntegritySignal(
+                "checks_skipped",
+                "warn",
+                f"{len(skipped)} pages hold more text or drawing than the size and overlay "
+                "checks will compare. A bank export stays near a few hundred objects a page. "
+                "Inspect those pages by eye.",
+                page=min(skipped),
+            )
+        )
     return signals
 
 
@@ -317,11 +347,10 @@ def _size_outliers(spans: tuple[PdfSpan, ...]) -> list[IntegritySignal]:
     }
     # Where each column sits on each page. A value typed over a cell is often
     # left-aligned, so its right edge misses the column. Its position doesn't.
-    areas = {
-        (page, key): _union([m.bbox for m in members if m.page == page])
-        for key, members in columns.items()
-        for page in {m.page for m in members}
-    }
+    areas: dict[int, list[tuple[int, BBox]]] = defaultdict(list)
+    for key, members in columns.items():
+        for page in {m.page for m in members}:
+            areas[page].append((key, _union([m.bbox for m in members if m.page == page])))
 
     def column_of(span: PdfSpan) -> int | None:
         edge = round(span.bbox[2])
@@ -332,8 +361,8 @@ def _size_outliers(spans: tuple[PdfSpan, ...]) -> list[IntegritySignal]:
         cy = (span.bbox[1] + span.bbox[3]) / 2
         best: int | None = None
         best_overlap = 0.0
-        for (page, key), area in areas.items():
-            if page != span.page or not area[1] <= cy <= area[3]:
+        for key, area in areas.get(span.page, ()):
+            if not area[1] <= cy <= area[3]:
                 continue
             overlap = min(span.bbox[2], area[2]) - max(span.bbox[0], area[0])
             if overlap > best_overlap:
@@ -355,37 +384,50 @@ def _size_outliers(spans: tuple[PdfSpan, ...]) -> list[IntegritySignal]:
     return signals
 
 
-def _overlays(spans: tuple[PdfSpan, ...], fills: tuple[PdfFill, ...]) -> list[IntegritySignal]:
-    whites = [f for f in fills if all(c >= _WHITE for c in f.color) and _area(f.bbox) > 0]
-    if not whites:
-        return []
+def _is_white(fill: PdfFill) -> bool:
+    return all(c >= _WHITE for c in fill.color) and _area(fill.bbox) > 0
 
-    grid: dict[tuple[int, int, int], list[PdfSpan]] = defaultdict(list)
+
+def _overlays(
+    spans: tuple[PdfSpan, ...], whites: list[PdfFill]
+) -> tuple[list[IntegritySignal], set[int]]:
+    """Text a later white fill covers, and the pages left out because the
+    comparisons would pass `_OVERLAY_BUDGET`."""
+    texts: dict[int, list[PdfSpan]] = defaultdict(list)
     for span in spans:
         if span.text.strip():
-            for cell in _cells(span.page, span.bbox):
-                grid[cell].append(span)
+            texts[span.page].append(span)
+    fills: dict[int, list[PdfFill]] = defaultdict(list)
+    for fill in whites:
+        fills[fill.page].append(fill)
 
     signals: list[IntegritySignal] = []
-    seen: set[tuple[int, int]] = set()
-    for fill in whites:
-        for cell in _cells(fill.page, fill.bbox):
-            for span in grid.get(cell, ()):
-                key = (span.page, span.seqno)
-                if key in seen or span.seqno >= fill.seqno:
+    skipped: set[int] = set()
+    spent = 0
+    for page, page_fills in sorted(fills.items()):
+        page_spans = texts.get(page, [])
+        cost = len(page_fills) * len(page_spans)
+        if spent + cost > _OVERLAY_BUDGET:
+            skipped.add(page)
+            continue
+        spent += cost
+        seen: set[int] = set()
+        for fill in page_fills:
+            for span in page_spans:
+                if span.seqno in seen or span.seqno >= fill.seqno:
                     continue
                 if _overlap(span.bbox, fill.bbox) >= _COVER_RATIO * _area(span.bbox):
-                    seen.add(key)
+                    seen.add(span.seqno)
                     signals.append(
                         IntegritySignal(
                             "overlay_over_text",
                             "error",
                             f"{span.text.strip()!r} sits under a white box drawn after it. "
                             "The visible value may differ from the one in the file.",
-                            page=span.page,
+                            page=page,
                         )
                     )
-    return signals
+    return signals, skipped
 
 
 def _area(b: BBox) -> float:
@@ -403,11 +445,3 @@ def _union(boxes: list[BBox]) -> BBox:
         max(b[2] for b in boxes),
         max(b[3] for b in boxes),
     )
-
-
-def _cells(page: int, b: BBox) -> list[tuple[int, int, int]]:
-    return [
-        (page, gx, gy)
-        for gx in range(int(b[0] // _GRID), int(b[2] // _GRID) + 1)
-        for gy in range(int(b[1] // _GRID), int(b[3] // _GRID) + 1)
-    ]

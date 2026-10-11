@@ -1,4 +1,5 @@
 import re
+import time
 import tracemalloc
 import zipfile
 from collections.abc import Callable
@@ -11,6 +12,8 @@ from typing import Any
 import pytest
 
 from bankstract._pymupdf import (  # pyright: ignore[reportPrivateUsage]
+    PdfFill,
+    PdfSpan,
     _revisions,
     new_doc,
     open_doc,
@@ -19,6 +22,7 @@ from bankstract._pymupdf import (  # pyright: ignore[reportPrivateUsage]
 from bankstract._xlsx import xlsx_application
 from bankstract.integrity import (  # pyright: ignore[reportPrivateUsage]
     IntegrityReport,
+    _overlays,
     _rows,
     _size_outliers,
     inspect,
@@ -495,6 +499,48 @@ def test_entity_declarations_are_not_expanded(tmp_path: Path) -> None:
     with zipfile.ZipFile(out, "w") as zf:
         zf.writestr("docProps/app.xml", bomb)
     assert xlsx_application(out) == "&a;&a;&a;"
+
+
+def test_huge_white_box_costs_nothing_and_is_still_flagged() -> None:
+    # A box this size put billions of cells in the old grid and exhausted memory.
+    span = PdfSpan(1, "9,999.00", "Helvetica", 7.0, (100.0, 100.0, 140.0, 108.0), 1)
+    fill = PdfFill(1, (-1e9, -1e9, 1e9, 1e9), (1.0, 1.0, 1.0), 2)
+    start = time.perf_counter()
+    signals, skipped = _overlays((span,), [fill])
+    assert time.perf_counter() - start < 1
+    assert [s.code for s in signals] == ["overlay_over_text"]
+    assert skipped == set()
+
+
+def _white_box_over_last_run(tmp_path: Path) -> IntegrityReport:
+    target = [s for s in pdf_forensics(ZENITH).spans if s.page == 1 and s.text.strip()][-1]
+
+    def edit(doc: Any, out: Path) -> None:
+        doc[0].draw_rect(target.bbox, color=None, fill=(1, 1, 1))
+        doc.save(str(out))
+
+    return _forge(tmp_path, edit)
+
+
+def test_page_past_the_object_cap_is_skipped_and_said_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A page stuffed with junk must not switch the checks off in silence.
+    assert "overlay_over_text" in _codes(_white_box_over_last_run(tmp_path))
+    monkeypatch.setattr("bankstract.integrity._MAX_PAGE_OBJECTS", 50)
+    report = _white_box_over_last_run(tmp_path)
+    assert "overlay_over_text" not in _codes(report)
+    skipped = [s for s in report.signals if s.code == "checks_skipped"]
+    assert [(s.severity, s.page) for s in skipped] == [("warn", 1)]
+
+
+def test_overlay_work_past_the_budget_is_skipped_and_said_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("bankstract.integrity._OVERLAY_BUDGET", 10)
+    report = _white_box_over_last_run(tmp_path)
+    assert "overlay_over_text" not in _codes(report)
+    assert [s.page for s in report.signals if s.code == "checks_skipped"] == [1]
 
 
 def test_oversized_app_part_is_not_inflated_whole(tmp_path: Path) -> None:

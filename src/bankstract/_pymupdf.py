@@ -9,6 +9,7 @@ module restricts the untyped surface to one file.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,6 +117,12 @@ def _bbox(raw: Any) -> BBox:
     return (float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
 
 
+def _finite(box: BBox) -> bool:
+    # A crafted file can place text or a fill at NaN or infinity. Rounding and
+    # comparing those downstream raises or misleads, so they never leave here.
+    return all(math.isfinite(c) for c in box)
+
+
 def pdf_forensics(source: Source) -> PdfForensics:
     """Metadata, revision count, text runs and fills with draw order. Fonts
     lose their subset prefix (`ABCDEF+Name` becomes `Name`)."""
@@ -135,24 +142,28 @@ def pdf_forensics(source: Source) -> PdfForensics:
                 visible = [c for c in run["chars"] if chr(c[0]).strip()]
                 if not visible:
                     continue
+                box: BBox = (
+                    min(float(c[3][0]) for c in visible),
+                    min(float(c[3][1]) for c in visible),
+                    max(float(c[3][2]) for c in visible),
+                    max(float(c[3][3]) for c in visible),
+                )
+                size = float(run["size"])
+                if not (_finite(box) and math.isfinite(size)):
+                    continue
                 spans.append(
                     PdfSpan(
                         page=number,
                         text="".join(chr(c[0]) for c in run["chars"]),
                         font=_SUBSET_PREFIX.sub("", run["font"]),
-                        size=float(run["size"]),
-                        bbox=(
-                            min(float(c[3][0]) for c in visible),
-                            min(float(c[3][1]) for c in visible),
-                            max(float(c[3][2]) for c in visible),
-                            max(float(c[3][3]) for c in visible),
-                        ),
+                        size=size,
+                        bbox=box,
                         seqno=int(run["seqno"]),
                     )
                 )
             for path in page.get_drawings():
                 fill = path.get("fill")
-                if fill is None:
+                if fill is None or not _finite(_bbox(path["rect"])):
                     continue
                 fills.append(
                     PdfFill(
