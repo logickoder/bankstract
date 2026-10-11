@@ -130,12 +130,12 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | `convert`             | function      | `convert(source, *, format="csv", bank=None, reconcile=True, progress_callback=None, isolate=False, timeout=60.0, memory_mb=2048) -> bytes`. Byte-identical to CLI, isolated or not. |
 | `reconcile_result`    | function      | `reconcile_result(result, *, progress_callback=None) -> ReconciledParseResult`. Raises `ReconciliationError` on a break or when no check can run. |
 | `serialize`           | function      | `serialize(result, format: OutputFormat) -> bytes`. The canonical bytes `convert` and the CLI emit. |
-| `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
+| `detect`              | function      | `detect(source, *, isolate=False, timeout=60.0, memory_mb=2048) -> str \| None` (max-score bank) |
 | `inspect`             | function      | `inspect(source, *, bank=None, result=None, isolate=False, timeout=60.0, memory_mb=2048) -> IntegrityReport`. Pass `result` to skip a second parse. `isolate=True` runs it in a child process. Raises `EncryptedSourceError`, and `ResourceLimitError` when an isolated worker cannot finish. A file the parser rejects is an `unparseable` signal. |
 | `list_parsers`        | function      | sorted bank names (parsers)                         |
 | `write_csv`           | function      | `write_csv(transactions, target: Path \| TextIO) -> int` |
 | `write_json`          | function      | `write_json(result, target: Path \| TextIO) -> int` |
-| `redact`              | function      | `redact(source, *, bank=None) -> RedactResult`. In-memory bytes. |
+| `redact`              | function      | `redact(source, *, bank=None, progress_callback=None, isolate=False, timeout=60.0, memory_mb=2048) -> RedactResult`. In-memory bytes. |
 | `list_redactors`      | function      | sorted bank names (redactors)                       |
 | `Parser`              | ABC           | base class for new parsers                          |
 | `Redactor`            | ABC           | base class for new redactors                        |
@@ -204,12 +204,12 @@ opay balances skip OWealth auto-save moves, so they don't chain. `Reconciliation
 
 ### Untrusted files
 
-A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code can stop that. A 62-byte page that invokes a form of 100,000 text runs takes 4s and 180 MB. Pass `isolate=True` (CLI `--isolate`) to `parse()`, `convert()` or `inspect()` for any file you did not make. The whole call runs in a spawned child with a time limit. A child that passes the limit, runs out of memory or dies raises `ResourceLimitError`, and the CLI exits 2 with no report. It never returns a clean one.
+A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code can stop that. A 62-byte page that invokes a form of 100,000 text runs takes 4s and 180 MB. Pass `isolate=True` (CLI `--isolate`) to `parse()`, `convert()`, `detect()`, `redact()` or `inspect()` for any file you did not make. `bankstract redact <bank>` takes `--isolate` and `--timeout` too. The whole call runs in a spawned child with a time limit. A child that passes the limit, runs out of memory or dies raises `ResourceLimitError`, and the CLI exits 2 with no report. It never returns a clean one.
 
 - Costs about 0.3s a call. Off by default, like `parse()`.
 - The memory limit (`memory_mb`) is enforced on Linux only. macOS refuses `RLIMIT_AS`, and Windows has no equivalent, so both get the time limit alone.
 - A `progress_callback` cannot cross into the child, so `isolate=True` with one raises `ValueError`, and the CLI shows no bar. `bankstract auto --isolate` also skips the "detected" line: it detects inside the child.
-- `detect()` and `redact()` are not isolated. Both read the file in the calling process.
+- The worker is spawned, so it re-imports your main module. Call it from a script under `if __name__ == "__main__":`. Without the guard the child re-runs your script and dies. A script piped on stdin (`python -`) cannot be re-imported at all, and raises `ResourceLimitError` with a message about crashing. `python -c`, a REPL, a notebook and ordinary modules work.
 
 What it misses:
 
