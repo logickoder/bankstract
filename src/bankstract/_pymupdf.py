@@ -76,6 +76,8 @@ class PdfForensics:
     revisions: int
     spans: tuple[PdfSpan, ...]
     fills: tuple[PdfFill, ...]
+    # Text runs and fills left out for coordinates that are not finite numbers.
+    unreadable: int = 0
 
     @property
     def fonts(self) -> frozenset[str]:
@@ -134,6 +136,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
         meta: dict[str, str] = doc.metadata or {}
         spans: list[PdfSpan] = []
         fills: list[PdfFill] = []
+        unreadable = 0
         for page in doc:
             number: int = page.number + 1
             for run in page.get_texttrace():
@@ -150,6 +153,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
                 )
                 size = float(run["size"])
                 if not (_finite(box) and math.isfinite(size)):
+                    unreadable += 1
                     continue
                 spans.append(
                     PdfSpan(
@@ -163,7 +167,10 @@ def pdf_forensics(source: Source) -> PdfForensics:
                 )
             for path in page.get_drawings():
                 fill = path.get("fill")
-                if fill is None or not _finite(_bbox(path["rect"])):
+                if fill is None:
+                    continue
+                if not _finite(_bbox(path["rect"])):
+                    unreadable += 1
                     continue
                 fills.append(
                     PdfFill(
@@ -182,4 +189,5 @@ def pdf_forensics(source: Source) -> PdfForensics:
         revisions=revisions,
         spans=tuple(spans),
         fills=tuple(fills),
+        unreadable=unreadable,
     )

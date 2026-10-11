@@ -179,11 +179,19 @@ def _ordered(signals: list[IntegritySignal]) -> tuple[IntegritySignal, ...]:
 
 
 def _file_checked(source: Source, bank: str | None) -> list[IntegritySignal]:
-    # The file already failed to parse, so it may not open here either.
+    # The file already failed to parse, so it may not open here either. Say so:
+    # an empty list would read as "checked and clean".
     try:
         return _file(source, bank)
     except (ValueError, RuntimeError):
-        return []
+        return [
+            IntegritySignal(
+                "checks_skipped",
+                "warn",
+                "The file would not open for the revision, producer, font and overlay "
+                "checks. They did not run. Ask for the original from the bank.",
+            )
+        ]
 
 
 def _reconciliation(result: ParseResult) -> list[IntegritySignal]:
@@ -236,16 +244,16 @@ def _rows(result: ParseResult) -> list[IntegritySignal]:
 
 
 def _file(source: Source, bank: str | None) -> list[IntegritySignal]:
-    if bank is None:
-        return []
+    # No `bank` skips the baseline comparisons only. Revisions, overlays and
+    # sizes need none, and a file that dodges detection must not dodge them.
     rewind(source)
     if sniff_format(source) == "xlsx":
         return _xlsx_signals(source, bank)
     return _pdf_signals(pdf_forensics(source), bank)
 
 
-def _xlsx_signals(source: Source, bank: str) -> list[IntegritySignal]:
-    baseline = _BASELINES.get(bank)
+def _xlsx_signals(source: Source, bank: str | None) -> list[IntegritySignal]:
+    baseline = _BASELINES.get(bank or "")
     expected = baseline.xlsx_application if baseline else None
     application = xlsx_application(source)
     if expected is None or expected.match(application):
@@ -260,7 +268,7 @@ def _xlsx_signals(source: Source, bank: str) -> list[IntegritySignal]:
     ]
 
 
-def _pdf_signals(forensics: PdfForensics, bank: str) -> list[IntegritySignal]:
+def _pdf_signals(forensics: PdfForensics, bank: str | None) -> list[IntegritySignal]:
     signals: list[IntegritySignal] = []
 
     if forensics.revisions > 1:
@@ -284,7 +292,7 @@ def _pdf_signals(forensics: PdfForensics, bank: str) -> list[IntegritySignal]:
             )
         )
 
-    baseline = _BASELINES.get(bank) or _Baseline()
+    baseline = _BASELINES.get(bank or "") or _Baseline()
     producer = baseline.pdf_producer
     if producer is not None and not producer.match(forensics.producer):
         signals.append(
@@ -321,6 +329,15 @@ def _pdf_signals(forensics: PdfForensics, bank: str) -> list[IntegritySignal]:
     signals.extend(_size_outliers(spans))
     overlays, over_budget = _overlays(spans, covers)
     signals.extend(overlays)
+    if forensics.unreadable:
+        signals.append(
+            IntegritySignal(
+                "checks_skipped",
+                "warn",
+                f"{forensics.unreadable} text runs or fills have coordinates that are not "
+                "numbers. The size and overlay checks left them out. Inspect the file by eye.",
+            )
+        )
     skipped = crowded | over_budget
     if skipped:
         signals.append(

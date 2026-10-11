@@ -1,3 +1,4 @@
+import math
 import re
 import time
 import tracemalloc
@@ -13,7 +14,9 @@ import pytest
 
 from bankstract._pymupdf import (  # pyright: ignore[reportPrivateUsage]
     PdfFill,
+    PdfForensics,
     PdfSpan,
+    _finite,
     _revisions,
     new_doc,
     open_doc,
@@ -23,6 +26,7 @@ from bankstract._xlsx import xlsx_application
 from bankstract.integrity import (  # pyright: ignore[reportPrivateUsage]
     IntegrityReport,
     _overlays,
+    _pdf_signals,
     _rows,
     _size_outliers,
     inspect,
@@ -247,6 +251,40 @@ def test_unparseable_without_a_bank_reports_only_the_failure(tmp_path: Path) -> 
     report = inspect(_blank_pdf(tmp_path))
     assert report.bank is None
     assert _codes(report) == {"unparseable"}
+
+
+def test_file_checks_run_without_a_detected_bank(tmp_path: Path) -> None:
+    # Revisions, overlays and sizes need no baseline. A file that dodges
+    # detection must not dodge them too.
+    forged = tmp_path / "forged.pdf"
+    append_revision(_blank_pdf(tmp_path), forged)
+    report = inspect(forged)
+    assert report.bank is None
+    assert {"unparseable", "incremental_update"} <= _codes(report)
+
+
+def test_unreadable_objects_are_reported_not_dropped() -> None:
+    forensics = PdfForensics("", "", "", 1, (), (), unreadable=3)
+    signals = _pdf_signals(forensics, None)
+    assert [(s.code, s.severity, s.page) for s in signals] == [("checks_skipped", "warn", None)]
+    assert "3" in signals[0].detail
+
+
+def test_non_finite_coordinates_are_not_finite() -> None:
+    assert not _finite((0.0, 0.0, math.inf, 1.0))
+    assert not _finite((math.nan, 0.0, 1.0, 1.0))
+    assert _finite((0.0, 0.0, 1.0, 1.0))
+
+
+def test_file_that_will_not_open_for_the_file_checks_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(_source: Any) -> None:
+        raise RuntimeError("cannot open")
+
+    monkeypatch.setattr("bankstract.integrity.pdf_forensics", fail)
+    report = inspect(_blank_pdf(tmp_path), bank="zenith")
+    assert _codes(report) == {"unparseable", "checks_skipped"}
 
 
 def test_encrypted_source_still_raises(tmp_path: Path) -> None:
