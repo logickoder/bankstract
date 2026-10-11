@@ -27,6 +27,7 @@ bankstract <bank> <pdf> -o <out>               # explicit parser
 bankstract auto <pdf> -o <out>                 # auto-detect via Parser.detect_confidence()
 bankstract list                                # show registered parsers
 bankstract inspect <pdf>                       # tamper signals as JSON. Exit 2 on an error signal
+bankstract inspect <pdf> --isolate             # untrusted file: child process, 60s limit, exit 2 if it cannot finish
 bankstract <bank> <pdf> -o out.json -f json    # JSON instead of CSV
 cat statement.pdf | bankstract auto - -o -     # stdin / stdout pipeline
 bankstract <bank> <pdf> -o <out> -q            # suppress the stderr progress bar
@@ -129,7 +130,7 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | `reconcile_result`    | function      | `reconcile_result(result, *, progress_callback=None) -> ReconciledParseResult`. Raises `ReconciliationError` on a break or when no check can run. |
 | `serialize`           | function      | `serialize(result, format: OutputFormat) -> bytes`. The canonical bytes `convert` and the CLI emit. |
 | `detect`              | function      | `detect(source) -> str \| None` (max-score bank)    |
-| `inspect`             | function      | `inspect(source, *, bank=None, result=None) -> IntegrityReport`. Pass `result` to skip a second parse. Raises `EncryptedSourceError` only. A file the parser rejects is an `unparseable` signal. |
+| `inspect`             | function      | `inspect(source, *, bank=None, result=None, isolate=False, timeout=60.0, memory_mb=2048) -> IntegrityReport`. Pass `result` to skip a second parse. `isolate=True` runs it in a child process. Raises `EncryptedSourceError`, and `ResourceLimitError` when an isolated worker cannot finish. A file the parser rejects is an `unparseable` signal. |
 | `list_parsers`        | function      | sorted bank names (parsers)                         |
 | `write_csv`           | function      | `write_csv(transactions, target: Path \| TextIO) -> int` |
 | `write_json`          | function      | `write_json(result, target: Path \| TextIO) -> int` |
@@ -153,6 +154,7 @@ Only the names re-exported from `bankstract` are part of the semver contract:
 | `EncryptedSourceError`| exception     | source PDF / XLSX is password-protected             |
 | `EmptyStatementError` | exception     | parser ran clean, zero rows. `.marker_coverage` field. |
 | `LayoutDriftError`    | exception     | anchor missing / column shifted post-detect         |
+| `ResourceLimitError`  | exception     | an isolated worker passed its time limit, ran out of memory or died. A `ParseError`. The file is not known to be clean. |
 | `ReconciliationError` | exception     | invariant break. `.bank`, `.format_version`, `.row_index`. Not a `ParseError`. |
 | `ProgressEvent`       | dataclass     | `stage: str`, `current: int`, `total: int`          |
 | `ProgressCallback`    | type alias    | `Callable[[ProgressEvent], None]`                   |
@@ -198,6 +200,14 @@ opay balances skip OWealth auto-save moves, so they don't chain. `Reconciliation
 | `checks_skipped`        | warn     | A check did not run on part of the file: a page holds over 2000 text runs or fills, a page's decoded content passes 2 MB, overlay work passed 20 million comparisons, objects have coordinates that are not numbers, or the file would not open for the file checks. |
 
 `IntegritySignal.detail` quotes the statement: amounts, balances, covered text. It is customer data. Show it to the statement's owner. Never log it. Log `code`, `severity`, `page` and `row` instead.
+
+### Untrusted files
+
+A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code can stop that. A 62-byte page that invokes a form of 100,000 text runs takes 4s and 180 MB. Pass `isolate=True` (CLI `--isolate`) for any file you did not make. The whole call runs in a spawned child with a time limit. A child that passes the limit, runs out of memory or dies raises `ResourceLimitError`, and the CLI exits 2 with no report. It never returns a clean one.
+
+- Costs about 0.3s a call. Off by default, like `parse()`.
+- The memory limit (`memory_mb`) is enforced on Linux only. macOS refuses `RLIMIT_AS`, and Windows has no equivalent, so both get the time limit alone.
+- `parse()` and `convert()` are not isolated. A service taking uploads should run those in a worker it can kill too.
 
 What it misses:
 

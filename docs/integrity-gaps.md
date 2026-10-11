@@ -93,14 +93,14 @@ The cover check flags a fill that touches a tenth of one glyph. A forger can spl
 
 `font_size_outlier` compares an amount with the other amounts in its column. A forger who retypes every amount in a column at one new size leaves a column that agrees with itself. The original column is gone, so nothing disagrees. Close it by comparing a column's size with the bank's known amount size, which needs a per-bank baseline from more raw statements (see item 1).
 
-### 15. A compressed content stream is decoded in full before the size gate
+### 15. Isolation is opt-in, and its memory limit is Linux only
 
-`_MAX_PAGE_CONTENT` checks the decoded size, so `read_contents()` decodes the whole stream first. A Flate stream can expand a thousand times, so a small file can still cost memory equal to the decoded size, though no longer 680 times that. mupdf decodes it for any reader, and `parse()` does the same, so this is the library's exposure and not new to `inspect()`. Close it by reading the compressed length first and refusing a page whose stream cannot expand to the cap, or by decoding with a bound.
+`inspect(isolate=True)` bounds any file with a time limit, which closes the form-XObject, Flate and repetition cases that the in-process content gate cannot see: a 62-byte page invoking a form of 100k runs is killed at the limit (`tests/test_isolate.py` builds it). What stays open:
 
-### 16. A form XObject carries the content past the size gate
-
-`_MAX_PAGE_CONTENT` counts the page's own content stream. A page can hold 62 bytes that invoke a form XObject, and `get_texttrace()` extracts the form too. Measured: 100,000 runs in one form, page content 62 bytes, 4.0s and 180 MB, the gate never trips. A form invoked many times multiplies that, and forms can invoke forms. Summing the forms' sizes would catch the large single form and still miss repetition, so it is not a bound.
-
-In-process code cannot bound a single mupdf call. The real fix is isolation: run extraction in a child process with a memory and time limit, or have the caller do it. That is a decision about the whole library, since `parse()` through pdfplumber has the same exposure. Until then, a service that takes uploads must run `inspect()` in a worker it can kill.
+- **Off by default.** A caller who forgets the flag is unprotected. A service taking uploads must pass it.
+- **No memory limit on macOS or Windows.** macOS refuses `RLIMIT_AS` (`setrlimit` raises `current limit exceeds maximum limit`), and Windows has no equivalent. A runaway child there is bounded by the time limit alone, so it can use gigabytes for up to `timeout` seconds. Close it with a job object on Windows and a polling RSS check on macOS.
+- **The Linux limit is untested here.** The test runs in CI on Ubuntu only. `memory_mb=2048` is a guess at what pymupdf needs in address space, so it could kill a genuine file or let too much through. Confirm on a real Linux run and tune it.
+- **`parse()` and `convert()` are not isolated.** pdfplumber has the same exposure, and `inspect()` is protected only when it does its own parse inside the child. Isolate those entry points the same way, or document that callers must.
+- **The in-process gates are first lines, not bounds.** `_MAX_PAGE_CONTENT` reads the page stream only and decodes a compressed one in full first. They stop the naive crafted file. They do not stop a determined one.
 
 Not a gap, checked: a cover drawn as an annotation. pymupdf reports annotation appearance streams through `get_drawings`, so a white Square annotation over an amount is flagged.

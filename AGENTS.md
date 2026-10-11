@@ -35,6 +35,7 @@ bankstract/
 │       ├── schema.py          pydantic Transaction + StatementMetadata + ParseResult + errors
 │       ├── reconcile.py       reconcile_result() entry point + row-wise / totals checks
 │       ├── integrity.py       inspect() + IntegrityReport. Tamper signals, per-bank baselines
+│       ├── _isolate.py        run_isolated(): one call in a spawned child, time + memory limit
 │       ├── _api.py            lib API: parse() / convert() / detect() / redact() / list_parsers()
 │       ├── _source.py         Source = Path | IO[bytes] + rewind() helper
 │       ├── _layout.py         shared Word dataclass + classify + Y-grouping

@@ -8,6 +8,8 @@ Notable changes per release. Pre-1.0. Breaking changes land freely. Called out i
 
 - **`inspect(source, *, bank=None) -> IntegrityReport`.** Tamper signals for a statement: reconciliation, revisions, producer, fonts, font sizes, fills drawn over text, day order, statement period. Evidence only, never a verdict. A check that could not run on part of the file is a `checks_skipped` warning. A file the parser rejects is an `unparseable` error signal. `EncryptedSourceError` still raises.
 - **`inspect(..., result=)`.** Pass a `ParseResult` you already have to skip the second parse. Parse is 4.0s of the 4.5s total on a 58-page opay statement. `bank` must match `result.bank`, or `ValueError`.
+- **`inspect(..., isolate=True)`** and **`bankstract inspect --isolate`.** Run the call in a spawned child with a time limit (`timeout`, 60s) and, on Linux, a memory limit (`memory_mb`, 2048). Costs about 0.3s. Off by default. For files you did not make: a crafted page can cost gigabytes in one mupdf call, and nothing in-process can stop it.
+- **`ResourceLimitError`** (a `ParseError`). An isolated worker passed its time limit, ran out of memory or died. The CLI exits 2 with no report. It is never a clean result.
 - **`IntegrityReport`** and **`IntegritySignal`**. `.errors`, `.clean` and `.to_dict()` on the report. `to_dict()` is the JSON the CLI prints.
 - **`bankstract inspect <file>`.** JSON report on stdout, one line per signal on stderr. stderr carries code and position only. `detail` quotes the statement, so it stays in the JSON. Exits 2 on any error signal. `--bank` skips detection. `-` reads stdin.
 - **`pdf_forensics()`** in `_pymupdf.py` and **`xlsx_application()`** in `_xlsx.py`. Internal.
