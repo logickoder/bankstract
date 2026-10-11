@@ -1,6 +1,7 @@
 """Forgery helpers shared by the integrity tests. Each builds an edit a real
 forger could make, from a committed sample."""
 
+import re
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -147,4 +148,20 @@ def form_page(tmp_path: Path, runs: int) -> Path:
     out = tmp_path / "form.pdf"
     doc.save(str(out))
     doc.close()
+    return out
+
+
+def equal_id_copy(src: Path, out: Path) -> Path:
+    """`src` with the second half of its trailer /ID set to the first, as fbn and
+    opay write it. Same length, so the file's offsets stay valid."""
+    data = src.read_bytes()
+    pattern = re.compile(rb"(/ID\s*\[\s*<)([0-9A-Fa-f]+)(>\s*<)([0-9A-Fa-f]+)(>\s*\])")
+    match = pattern.search(data)
+    assert match, "no hex /ID pair in the sample"
+    first = match.group(2)
+    out.write_bytes(
+        data[: match.start(4)]
+        + first.ljust(len(match.group(4)), b"0")[: len(match.group(4))]
+        + data[match.end(4) :]
+    )
     return out

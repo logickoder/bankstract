@@ -46,6 +46,7 @@ BBox = tuple[float, float, float, float]
 
 _SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
 _FIRST_PAGE_SECTION = re.compile(rb"startxref\s+0(?!\d)")
+_HEX_STRING = re.compile(r"<([0-9A-Fa-f]*)>")
 # Decoded content stream of one page. Real statement pages top out near 36 KB. A
 # crafted page of 400k one-glyph runs is 14 MB and costs 700 MB to extract, about
 # 680 times the file. Checked before extraction: a cap on runs applied after it
@@ -88,6 +89,8 @@ class PdfForensics:
     unreadable: int = 0
     # Pages whose content was too large to extract. 1-based.
     oversized: tuple[int, ...] = ()
+    # The trailer /ID pair as lowercase hex, or None when absent or not two hex strings.
+    id_halves: tuple[str, str] | None = None
 
     @property
     def fonts(self) -> frozenset[str]:
@@ -140,6 +143,8 @@ def pdf_forensics(source: Source) -> PdfForensics:
     doc: Any = _pymupdf.open(stream=raw, filetype="pdf")
     try:
         meta: dict[str, str] = doc.metadata or {}
+        halves = _HEX_STRING.findall(doc.xref_get_key(-1, "ID")[1])
+        id_halves = (halves[0].lower(), halves[1].lower()) if len(halves) == 2 else None
         spans: list[PdfSpan] = []
         fills: list[PdfFill] = []
         unreadable = 0
@@ -204,4 +209,5 @@ def pdf_forensics(source: Source) -> PdfForensics:
         fills=tuple(fills),
         unreadable=unreadable,
         oversized=tuple(oversized),
+        id_halves=id_halves,
     )

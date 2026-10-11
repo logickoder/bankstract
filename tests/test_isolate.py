@@ -387,3 +387,23 @@ def test_no_memory_limit_asked_for_means_none_is_set() -> None:
     _apply_memory_limit(None, platform="linux", res=fake)
     _apply_memory_limit(0, platform="linux", res=fake)
     assert fake.set_to is None
+
+
+def test_a_script_that_cannot_be_re_imported_is_refused_before_a_worker_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A script piped on stdin names a main file that does not exist. The child would
+    # die and the caller would see a crash. Say what is wrong, and start nothing.
+    def no_worker() -> None:
+        raise AssertionError("a worker was started")
+
+    monkeypatch.setattr(sys.modules["__main__"], "__file__", "<stdin>", raising=False)
+    monkeypatch.setattr("bankstract._isolate._context", no_worker)
+    with pytest.raises(RuntimeError, match=r"\(<stdin>\) cannot be re-imported"):
+        run_isolated(operator.add, 1, 2, timeout=30)
+
+
+def test_a_main_with_no_file_still_runs_a_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `python -c`, a REPL and a notebook have no main file.
+    monkeypatch.delattr(sys.modules["__main__"], "__file__", raising=False)
+    assert run_isolated(operator.add, 1, 2, timeout=30) == 3

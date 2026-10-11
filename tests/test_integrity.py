@@ -42,6 +42,7 @@ from ._forge import (
     balance_span,
     blank_pdf,
     column_span,
+    equal_id_copy,
     locked_pdf,
     retype,
     runs_page,
@@ -50,7 +51,7 @@ from ._forge import (
 
 # The redactor rewrites fonts and the xlsx writer, so a committed sample can't
 # carry its bank's file signature. Raw `_local` files are the authentic baseline.
-_REDACTION_ARTIFACTS = {"unexpected_font", "unexpected_producer"}
+_REDACTION_ARTIFACTS = {"unexpected_font", "unexpected_producer", "id_changed"}
 
 
 def _codes(report: IntegrityReport) -> set[str]:
@@ -279,6 +280,37 @@ def test_one_non_finite_glyph_makes_the_whole_run_unreadable(bad: float, where: 
     assert not _finite_run(tuple(glyphs), 7.0)
     assert not _finite_run(((0.0, 0.0, 5.0, 7.0),), bad)
     assert _finite_run(((0.0, 0.0, 5.0, 7.0), (5.0, 0.0, 10.0, 7.0)), 7.0)
+
+
+@pytest.mark.parametrize("bank", ["fbn", "opay"])
+def test_a_resave_changes_the_id_halves_a_bank_writes_equal(tmp_path: Path, bank: str) -> None:
+    result = parsed(bank, sample(bank))
+    genuine = equal_id_copy(sample(bank), tmp_path / "genuine.pdf")
+    first, second = pdf_forensics(genuine).id_halves or ("", "x")
+    assert first == second
+    assert "id_changed" not in _codes(inspect(genuine, bank=bank, result=result))
+
+    resaved = tmp_path / "resaved.pdf"
+    doc: Any = open_doc(genuine)
+    doc.save(str(resaved))
+    doc.close()
+    assert "id_changed" in _codes(inspect(resaved, bank=bank, result=result))
+
+
+@pytest.mark.parametrize("bank", ["zenith", "palmpay"])
+def test_a_bank_that_writes_unequal_halves_is_not_checked(tmp_path: Path, bank: str) -> None:
+    resaved = tmp_path / "resaved.pdf"
+    doc: Any = open_doc(sample(bank))
+    doc.save(str(resaved))
+    doc.close()
+    assert "id_changed" not in _codes(
+        inspect(resaved, bank=bank, result=parsed(bank, sample(bank)))
+    )
+
+
+def test_a_file_with_no_hex_id_pair_is_not_checked() -> None:
+    forensics = PdfForensics("", "", "", 1, (), (), id_halves=None)
+    assert "id_changed" not in {s.code for s in _pdf_signals(forensics, "fbn")}
 
 
 def test_file_that_will_not_open_for_the_file_checks_is_reported(
@@ -603,6 +635,32 @@ def test_covering_part_of_an_amount_is_an_error(tmp_path: Path, which: str) -> N
 @pytest.mark.parametrize("opacity", [0.89, 0.7, 0.55])
 def test_a_nearly_opaque_cover_is_an_error(tmp_path: Path, opacity: float) -> None:
     assert "overlay_over_text" in _codes(_cover_glyph(tmp_path, "all", opacity, (0.95, 0.95, 0.95)))
+
+
+def _sliver_cover(tmp_path: Path, pieces: int) -> IntegrityReport:
+    """`pieces` white strips over the first glyph of an amount, each 4% of it."""
+    span = balance_span()
+    left, top, right, bottom = span.glyphs[0]
+    strip = (left, top, left + 0.04 * (right - left), bottom)
+
+    def edit(doc: Any, out: Path) -> None:
+        for _ in range(pieces):
+            doc[span.page - 1].draw_rect(strip, color=None, fill=(1, 1, 1))
+        doc.save(str(out))
+
+    return _forge(tmp_path, edit)
+
+
+def test_one_thin_sliver_over_a_glyph_is_below_the_line(tmp_path: Path) -> None:
+    assert "overlay_over_text" not in _codes(_sliver_cover(tmp_path, 1))
+
+
+@pytest.mark.parametrize("pieces", [3, 5])
+def test_slivers_that_add_up_to_a_cover_are_an_error(tmp_path: Path, pieces: int) -> None:
+    # Each strip is under a tenth of the glyph. Together they hide it.
+    report = _sliver_cover(tmp_path, pieces)
+    assert "overlay_over_text" in _codes(report)
+    assert report.errors
 
 
 def test_a_translucent_highlight_is_not_a_cover(tmp_path: Path) -> None:

@@ -111,6 +111,20 @@ def _child(
         conn.close()
 
 
+def _check_main_importable() -> None:
+    """A child re-imports `__main__` from its file. A script piped on stdin names
+    `<stdin>`, which does not exist, so the child would die and the caller would
+    see only a crash. Say so before anything starts. `python -c`, a REPL and a
+    notebook have no file and work."""
+    path = getattr(sys.modules.get("__main__"), "__file__", None)
+    if path and not Path(path).exists():
+        raise RuntimeError(
+            f"Cannot start a worker. This script ({path}) cannot be re-imported by a "
+            'child process. Save it to a file and run that, under an `if __name__ == "__main__":` '
+            "guard. Nothing was checked."
+        )
+
+
 def _ignore(_event: ProgressEvent) -> None:
     pass
 
@@ -163,6 +177,7 @@ def run_isolated(
     `on_progress` receives the child's progress events here, in order, as they
     happen. The timeout counts from the call, not from the last event. An
     exception `on_progress` raises stops the child and propagates."""
+    _check_main_importable()
     ctx = _context()
     receiver, sender = ctx.Pipe(duplex=False)
     proc = ctx.Process(

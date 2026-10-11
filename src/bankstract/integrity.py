@@ -33,6 +33,7 @@ SignalCode = Literal[
     "modified_after_create",
     "unexpected_producer",
     "unexpected_font",
+    "id_changed",
     "font_size_outlier",
     "overlay_over_text",
     "date_out_of_order",
@@ -81,6 +82,10 @@ class _Baseline:
     pdf_producer: re.Pattern[str] | None = None
     pdf_fonts: frozenset[str] | None = None
     xlsx_application: re.Pattern[str] | None = None
+    # The bank writes the two halves of the trailer /ID equal. A tool that re-saves
+    # the file changes the second. Read from one raw statement per bank, so a bank
+    # that writes them unequal is simply left out, not assumed.
+    pdf_id_halves_equal: bool = False
 
 
 # Producers match on the library name only, so a bank bumping iText 5.5.13 to
@@ -89,6 +94,7 @@ _BASELINES: dict[str, _Baseline] = {
     "fbn": _Baseline(
         pdf_producer=re.compile(r"^iTextSharp"),
         pdf_fonts=frozenset({"Helvetica", "Helvetica-Bold"}),
+        pdf_id_halves_equal=True,
     ),
     "zenith": _Baseline(
         pdf_producer=re.compile(r"^iText\b"),
@@ -100,6 +106,7 @@ _BASELINES: dict[str, _Baseline] = {
         pdf_producer=re.compile(r"^OpenPDF"),
         pdf_fonts=frozenset({"Poppins-Regular", "ArialMT"}),
         xlsx_application=re.compile(r"^Go Excelize"),
+        pdf_id_halves_equal=True,
     ),
     # palmpay writes no producer. Any value means a tool re-saved the file.
     "palmpay": _Baseline(
@@ -323,6 +330,18 @@ def _pdf_signals(forensics: PdfForensics, bank: str | None) -> list[IntegritySig
             )
         )
 
+    halves = forensics.id_halves
+    if baseline.pdf_id_halves_equal and halves is not None and halves[0] != halves[1]:
+        signals.append(
+            IntegritySignal(
+                "id_changed",
+                "warn",
+                f"The two halves of the trailer /ID differ. A {bank} export writes them equal, "
+                "and a tool that re-saves the file changes the second. "
+                "Ask for the original from the bank.",
+            )
+        )
+
     allowed = baseline.pdf_fonts
     if allowed is not None:
         extra = sorted(forensics.fonts - allowed)
@@ -458,12 +477,15 @@ def _overlays(
             continue
         spent += cost
         seen: set[int] = set()
+        # Area each glyph has lost so far, over every fill. A cover cut into strips
+        # that are each under the line still adds up.
+        covered: dict[tuple[int, int], float] = {}
         for fill in page_fills:
             for span in page_spans:
                 if span.seqno in seen or span.seqno >= fill.seqno:
                     continue
                 # The run's box is a cheap filter before the per-glyph test.
-                if _overlap(span.bbox, fill.bbox) > 0 and _hides_a_glyph(span, fill):
+                if _overlap(span.bbox, fill.bbox) > 0 and _hides_a_glyph(span, fill, covered):
                     seen.add(span.seqno)
                     signals.append(
                         IntegritySignal(
@@ -477,11 +499,18 @@ def _overlays(
     return signals, skipped
 
 
-def _hides_a_glyph(span: PdfSpan, fill: PdfFill) -> bool:
+def _hides_a_glyph(span: PdfSpan, fill: PdfFill, covered: dict[tuple[int, int], float]) -> bool:
+    """Whether `fill` takes some glyph of `span` past the line, counting what
+    earlier fills already took. Overlapping strips are counted twice, which only
+    makes a stack of them cross the line sooner."""
     # A hand-built span has no glyph boxes. Its run box stands in for one.
-    for box in span.glyphs or (span.bbox,):
+    for index, box in enumerate(span.glyphs or (span.bbox,)):
         area = _area(box)
-        if area > 0 and _overlap(box, fill.bbox) >= _COVER_RATIO * area:
+        if area <= 0:
+            continue
+        key = (span.seqno, index)
+        covered[key] = covered.get(key, 0.0) + _overlap(box, fill.bbox)
+        if covered[key] >= _COVER_RATIO * area:
             return True
     return False
 
