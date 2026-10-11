@@ -81,6 +81,14 @@ Revisit only with a rule that does not read structure the forger writes. For exa
 
 ### 12. A stuffed page only earns a warning
 
-A forger who adds over 2000 junk text runs or white fills to a page switches the size and overlay checks off for it. `checks_skipped` fires as a `warn`, so a caller that only reads errors misses it. It stays a warning because a dense genuine page would otherwise exit 2. Real pages peak near 300 text runs and 200 fills across the four banks.
+A forger who adds over 2000 junk text runs or fills to a page switches the size and overlay checks off for it. `checks_skipped` fires as a `warn`, so a caller that only reads errors misses it. It stays a warning because a dense genuine page would otherwise exit 2. Real pages peak near 300 text runs and 200 fills across the four banks.
 
 Close it once there are enough raw statements per bank to set the cap per bank, then raise the signal to an error for pages that pass a bank's own maximum by a wide margin.
+
+### 13. A cover built from slivers
+
+The cover check flags a fill that touches a tenth of one glyph. A forger can split a cover into pieces that each touch less than that, then stack enough of them to hide the glyph. It costs many fills per digit, and each one sits after the text it covers, which no real statement has. Close it by summing the covered area per glyph across fills, not testing each fill alone.
+
+### 14. A forged column keeps its own size
+
+`font_size_outlier` compares an amount with the other amounts in its column. A forger who retypes every amount in a column at one new size leaves a column that agrees with itself. The original column is gone, so nothing disagrees. Close it by comparing a column's size with the bank's known amount size, which needs a per-bank baseline from more raw statements (see item 1).

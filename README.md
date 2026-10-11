@@ -188,14 +188,14 @@ opay balances skip OWealth auto-save moves, so they don't chain. `Reconciliation
 | `unparseable`           | error    | The parser rejected the file. File checks still run when the bank is known. |
 | `reconciliation_failed` | error    | The balance chain or header totals break. `row` names the row.             |
 | `incremental_update`    | error    | More than one revision (`startxref` section). Changes were appended after the bank wrote the file. |
-| `overlay_over_text`     | error    | A white box drawn after a text run covers it. The visible value may differ. |
+| `overlay_over_text`     | error    | A fill of any colour, drawn after a text run, covers part of a glyph. The visible value may differ. |
 | `unexpected_producer`   | warn     | PDF producer or XLSX writer differs from the bank's own export tool.       |
 | `modified_after_create` | warn     | PDF creation and modification dates differ.                                |
 | `unexpected_font`       | warn     | A font outside the bank's baseline.                                        |
 | `font_size_outlier`     | warn     | An amount's size differs from its table column.                            |
 | `date_out_of_order`     | warn     | Rows break day order. Same-day order is ignored.                           |
 | `date_outside_period`   | warn     | A row falls outside the statement period.                                  |
-| `checks_skipped`        | warn     | A page holds over 2000 text runs or white fills, or overlay work passed 20 million comparisons. The size and overlay checks skipped it. |
+| `checks_skipped`        | warn     | A check did not run on part of the file: a page holds over 2000 text runs or fills, overlay work passed 20 million comparisons, objects have coordinates that are not numbers, or the file would not open for the file checks. |
 
 `IntegritySignal.detail` quotes the statement: amounts, balances, covered text. It is customer data. Show it to the statement's owner. Never log it. Log `code`, `severity`, `page` and `row` instead.
 
