@@ -111,14 +111,15 @@ _BASELINES: dict[str, _Baseline] = {
 # the cluster is a summary block or stray text, not a column.
 _MIN_COLUMN_SPANS = 5
 _SIZE_TOLERANCE = 0.05
-_WHITE = 0.95
-# Share of a span's box a later white fill must cover to count as hiding it.
+# A fill at or above this opacity hides what it covers. Highlights sit below it.
+_OPAQUE = 0.9
+# Share of a span's box a later fill must cover to count as hiding it.
 _COVER_RATIO = 0.5
 # Real statements top out near 300 text runs and 200 fills on a page. A crafted
 # page can hold millions. Past these bounds a page is skipped and the report
 # says so, so a page stuffed to switch the checks off leaves a warning.
 _MAX_PAGE_OBJECTS = 2_000
-# Span and white-fill pairs compared across the whole file. Opay's 58 pages
+# Span and fill pairs compared across the whole file. Opay's 58 pages
 # use about 1.2 million.
 _OVERLAY_BUDGET = 20_000_000
 
@@ -307,18 +308,18 @@ def _pdf_signals(forensics: PdfForensics, bank: str) -> list[IntegritySignal]:
                 )
             )
 
-    whites = [f for f in forensics.fills if _is_white(f)]
+    covers = [f for f in forensics.fills if _is_cover(f)]
     crowded = {
         page
-        for counts in (Counter(s.page for s in forensics.spans), Counter(f.page for f in whites))
+        for counts in (Counter(s.page for s in forensics.spans), Counter(f.page for f in covers))
         for page, n in counts.items()
         if n > _MAX_PAGE_OBJECTS
     }
     spans = tuple(s for s in forensics.spans if s.page not in crowded)
-    whites = [f for f in whites if f.page not in crowded]
+    covers = [f for f in covers if f.page not in crowded]
 
     signals.extend(_size_outliers(spans))
-    overlays, over_budget = _overlays(spans, whites)
+    overlays, over_budget = _overlays(spans, covers)
     signals.extend(overlays)
     skipped = crowded | over_budget
     if skipped:
@@ -384,21 +385,23 @@ def _size_outliers(spans: tuple[PdfSpan, ...]) -> list[IntegritySignal]:
     return signals
 
 
-def _is_white(fill: PdfFill) -> bool:
-    return all(c >= _WHITE for c in fill.color) and _area(fill.bbox) > 0
+def _is_cover(fill: PdfFill) -> bool:
+    # Any colour. A forger matches the row background, and on all four banks'
+    # raw statements no fill is drawn over earlier text at all.
+    return fill.opacity >= _OPAQUE and _area(fill.bbox) > 0
 
 
 def _overlays(
-    spans: tuple[PdfSpan, ...], whites: list[PdfFill]
+    spans: tuple[PdfSpan, ...], covers: list[PdfFill]
 ) -> tuple[list[IntegritySignal], set[int]]:
-    """Text a later white fill covers, and the pages left out because the
+    """Text a later opaque fill covers, and the pages left out because the
     comparisons would pass `_OVERLAY_BUDGET`."""
     texts: dict[int, list[PdfSpan]] = defaultdict(list)
     for span in spans:
         if span.text.strip():
             texts[span.page].append(span)
     fills: dict[int, list[PdfFill]] = defaultdict(list)
-    for fill in whites:
+    for fill in covers:
         fills[fill.page].append(fill)
 
     signals: list[IntegritySignal] = []
@@ -422,7 +425,7 @@ def _overlays(
                         IntegritySignal(
                             "overlay_over_text",
                             "error",
-                            f"{span.text.strip()!r} sits under a white box drawn after it. "
+                            f"{span.text.strip()!r} sits under a filled box drawn after it. "
                             "The visible value may differ from the one in the file.",
                             page=page,
                         )

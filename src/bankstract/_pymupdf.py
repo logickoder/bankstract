@@ -62,7 +62,7 @@ class PdfSpan:
 class PdfFill:
     page: int  # 1-based
     bbox: BBox
-    color: tuple[float, ...]
+    opacity: float
     seqno: int
 
 
@@ -169,7 +169,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
                     PdfFill(
                         page=number,
                         bbox=_bbox(path["rect"]),
-                        color=tuple(float(c) for c in fill),
+                        opacity=float(path.get("fill_opacity") or 1.0),
                         seqno=int(path["seqno"]),
                     )
                 )
