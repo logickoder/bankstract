@@ -17,6 +17,7 @@ from ._api import (
     redact,
 )
 from ._progress import ProgressCallback, ProgressEvent, throttle
+from .integrity import IntegrityReport, IntegritySignal, inspect
 from .parsers.base import Parser
 from .redactors.base import Redactor
 from .schema import (
@@ -45,6 +46,8 @@ __all__ = [
     "EmptyStatementError",
     "EncryptedSourceError",
     "Format",
+    "IntegrityReport",
+    "IntegritySignal",
     "LayoutDriftError",
     "OutputFormat",
     "Parser",
@@ -62,6 +65,7 @@ __all__ = [
     "Transaction",
     "__version__",
     "detect",
+    "inspect",
     "list_parsers",
     "list_redactors",
     "parse",

@@ -32,7 +32,7 @@ SourceLike = Source | str
 _W = TypeVar("_W", ParseResult, RedactResult)
 
 
-def _normalize(source: SourceLike) -> Source:
+def normalize_source(source: SourceLike) -> Source:
     if isinstance(source, str):
         return Path(source)
     return source
@@ -79,7 +79,7 @@ def list_redactors() -> list[str]:
 def detect(source: SourceLike) -> str | None:
     """Return the bank name whose parser scores highest on `source`, or
     None if no parser claims it."""
-    return _detect(_normalize(source), banks=all_parsers().keys())
+    return _detect(normalize_source(source), banks=all_parsers().keys())
 
 
 def _dispatch(
@@ -99,7 +99,7 @@ def _dispatch(
     exception surface consistent across format-sniff failures and parser
     layout drift.
     """
-    src = _normalize(source)
+    src = normalize_source(source)
     if bank is None:
         try:
             name = _detect(src, banks=candidate_banks)
