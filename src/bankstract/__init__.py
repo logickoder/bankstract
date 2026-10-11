@@ -34,6 +34,7 @@ from .schema import (
     ReconciliationReport,
     RedactReport,
     RedactResult,
+    ResourceLimitError,
     StatementMetadata,
     Transaction,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "RedactReport",
     "RedactResult",
     "Redactor",
+    "ResourceLimitError",
     "StatementMetadata",
     "Transaction",
     "__version__",

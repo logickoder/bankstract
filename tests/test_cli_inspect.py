@@ -63,3 +63,18 @@ def test_stderr_carries_no_statement_text(tmp_path: Path) -> None:
     lines = result.stderr.strip().splitlines()
     assert lines[0].startswith("error: reconciliation_failed (row ")
     assert "warn: font_size_outlier (page 1)" in lines
+
+
+def test_isolated_run_matches_in_process() -> None:
+    plain = CliRunner().invoke(main, ["inspect", str(ZENITH)])
+    isolated = CliRunner().invoke(main, ["inspect", str(ZENITH), "--isolate"])
+    assert isolated.exit_code == 0, isolated.output
+    assert json.loads(isolated.stdout) == json.loads(plain.stdout)
+
+
+def test_a_worker_that_cannot_finish_exits_two_with_no_report() -> None:
+    # Startup alone takes about 0.3s, so this limit cannot be met.
+    result = CliRunner().invoke(main, ["inspect", str(ZENITH), "--isolate", "--timeout", "0.05"])
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: Worker stopped after 0.05s.")

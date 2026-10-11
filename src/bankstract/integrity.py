@@ -13,9 +13,12 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
+from io import BytesIO
+from pathlib import Path
 from typing import Any, Literal
 
 from ._api import SourceLike, normalize_source, parse
+from ._isolate import run_isolated
 from ._layout import AMOUNT_TOK
 from ._pymupdf import BBox, PdfFill, PdfForensics, PdfSpan, pdf_forensics
 from ._source import Source, rewind
@@ -132,6 +135,9 @@ def inspect(
     *,
     bank: str | None = None,
     result: ParseResult | None = None,
+    isolate: bool = False,
+    timeout: float = 60.0,
+    memory_mb: int | None = 2048,
 ) -> IntegrityReport:
     """Collect integrity signals for `source`. A file the parser rejects is
     itself a signal: `unparseable` is an error and the file checks still run
@@ -141,8 +147,32 @@ def inspect(
     Pass `result` when you already parsed `source`. It skips the second parse,
     the dominant cost on a large statement. The result must come from this
     same source: the row checks read it, the file checks read `source`, and
-    nothing here can tell if they disagree. `bank` must match `result.bank`."""
+    nothing here can tell if they disagree. `bank` must match `result.bank`.
+
+    `isolate=True` runs the whole call in a child process. Use it on files you
+    do not trust: a crafted PDF can cost gigabytes inside one mupdf call, which
+    nothing in-process can stop. A child that passes `timeout` seconds, runs
+    out of memory or dies raises `ResourceLimitError`, never a clean report.
+    `memory_mb` is enforced on Linux only. Adds about 0.3s a call."""
     src = normalize_source(source)
+    if not isolate:
+        return _inspect(src, bank, result)
+    payload: Path | bytes
+    if isinstance(src, Path):
+        payload = src
+    else:
+        rewind(src)
+        payload = src.read()
+    return run_isolated(_inspect_job, payload, bank, result, timeout=timeout, memory_mb=memory_mb)
+
+
+def _inspect_job(
+    payload: Path | bytes, bank: str | None, result: ParseResult | None
+) -> IntegrityReport:
+    return _inspect(BytesIO(payload) if isinstance(payload, bytes) else payload, bank, result)
+
+
+def _inspect(src: Source, bank: str | None, result: ParseResult | None) -> IntegrityReport:
     if result is not None and bank is not None and result.bank != bank:
         raise ValueError(
             f"bank {bank!r} does not match the result's bank {result.bank!r}. "

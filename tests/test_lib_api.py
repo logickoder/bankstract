@@ -44,6 +44,7 @@ def test_public_surface_exports() -> None:
         "RedactReport",
         "RedactResult",
         "Redactor",
+        "ResourceLimitError",
         "StatementMetadata",
         "Transaction",
         "__version__",

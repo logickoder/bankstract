@@ -14,7 +14,13 @@ from ._xlsx import sniff_format
 from .integrity import inspect as inspect_source
 from .parsers import all_parsers, get
 from .redactors import all_redactors
-from .schema import EncryptedSourceError, OutputFormat, ParseError, ReconciliationError
+from .schema import (
+    EncryptedSourceError,
+    OutputFormat,
+    ParseError,
+    ReconciliationError,
+    ResourceLimitError,
+)
 
 
 def _read_source(pdf_arg: str) -> Source:
@@ -176,17 +182,34 @@ def _run(
 @click.option(
     "--bank", type=click.Choice(sorted(all_parsers())), default=None, help="Skip detection."
 )
-def inspect_cmd(pdf: str, bank: str | None) -> None:
+@click.option(
+    "--isolate",
+    is_flag=True,
+    help="Run in a child process with a time limit. Use it on files you do not trust.",
+)
+@click.option(
+    "--timeout",
+    type=click.FloatRange(min=0, min_open=True),
+    default=60.0,
+    show_default=True,
+    help="Seconds the child may run. Only with --isolate.",
+)
+def inspect_cmd(pdf: str, bank: str | None, isolate: bool, timeout: float) -> None:
     """Check a statement for signs of tampering. Report JSON goes to stdout.
     stderr gets one line per signal, with no statement text. Exits 2 when any
-    signal is an error, 0 otherwise."""
+    signal is an error, or when an isolated worker could not finish. Exits 0
+    otherwise."""
     source = _read_source(pdf)
     try:
-        report = inspect_source(source, bank=bank)
+        report = inspect_source(source, bank=bank, isolate=isolate, timeout=timeout)
     except EncryptedSourceError as exc:
         raise click.ClickException(
             f"{exc}. Nothing in it can be read. Save an unprotected copy and retry."
         ) from exc
+    except ResourceLimitError as exc:
+        # Not a pass: a file that stops the checker is not known to be clean.
+        click.echo(f"error: {exc}", err=True)
+        sys.exit(2)
     click.echo(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     # stderr lands in logs. `detail` quotes the statement, so it stays in the
     # stdout JSON, which the caller owns.
