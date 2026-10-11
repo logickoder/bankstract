@@ -208,7 +208,7 @@ A crafted PDF can cost gigabytes inside one mupdf call, and no in-process code c
 
 - Costs about 0.3s a call. Off by default, like `parse()`.
 - The memory limit (`memory_mb`) is enforced on Linux only. macOS refuses `RLIMIT_AS`, and Windows has no equivalent, so both get the time limit alone.
-- A `progress_callback` cannot cross into the child, so `isolate=True` with one raises `ValueError`, and the CLI shows no bar. `bankstract auto --isolate` also skips the "detected" line: it detects inside the child.
+- `progress_callback` works with `isolate=True`: the worker sends each event up a pipe and your callback gets them in order, as they happen, and the CLI bar draws as usual. The timeout counts from the call, not from the last event. A callback that raises stops the worker. `bankstract auto --isolate` skips the "detected" line, because it detects inside the child.
 - The worker is spawned, so it re-imports your main module. Call it from a script under `if __name__ == "__main__":`. Without the guard the child re-runs your script and dies. A script piped on stdin (`python -`) cannot be re-imported at all, and raises `ResourceLimitError` with a message about crashing. `python -c`, a REPL, a notebook and ordinary modules work.
 
 What it misses:
