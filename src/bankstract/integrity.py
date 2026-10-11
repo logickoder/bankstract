@@ -13,11 +13,10 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any, Literal
 
 from ._api import SourceLike, normalize_source, parse
-from ._isolate import DEFAULT_MEMORY_MB, DEFAULT_TIMEOUT, payload_of, run_isolated, source_of
+from ._isolate import DEFAULT_MEMORY_MB, DEFAULT_TIMEOUT, run_isolated_call
 from ._layout import AMOUNT_TOK
 from ._pymupdf import BBox, PdfFill, PdfForensics, PdfSpan, pdf_forensics
 from ._source import Source, rewind
@@ -156,15 +155,9 @@ def inspect(
     src = normalize_source(source)
     if not isolate:
         return _inspect(src, bank, result)
-    return run_isolated(
-        _inspect_job, payload_of(src), bank, result, timeout=timeout, memory_mb=memory_mb
+    return run_isolated_call(
+        inspect, src, bank=bank, result=result, timeout=timeout, memory_mb=memory_mb
     )
-
-
-def _inspect_job(
-    payload: Path | bytes, bank: str | None, result: ParseResult | None
-) -> IntegrityReport:
-    return _inspect(source_of(payload), bank, result)
 
 
 def _inspect(src: Source, bank: str | None, result: ParseResult | None) -> IntegrityReport:
@@ -213,11 +206,9 @@ def _file_checked(source: Source, bank: str | None) -> list[IntegritySignal]:
         return _file(source, bank)
     except (ValueError, RuntimeError):
         return [
-            IntegritySignal(
-                "checks_skipped",
-                "warn",
+            _skipped(
                 "The file would not open for the revision, producer, font and overlay "
-                "checks. They did not run. Ask for the original from the bank.",
+                "checks. They did not run. Ask for the original from the bank."
             )
         ]
 
@@ -344,6 +335,17 @@ def _pdf_signals(forensics: PdfForensics, bank: str | None) -> list[IntegritySig
                 )
             )
 
+    signals.extend(_content_signals(forensics))
+    return signals
+
+
+def _skipped(detail: str, page: int | None = None) -> IntegritySignal:
+    # A check that cannot run says so. Silence would read as "checked and clean".
+    return IntegritySignal("checks_skipped", "warn", detail, page=page)
+
+
+def _content_signals(forensics: PdfForensics) -> list[IntegritySignal]:
+    """The size and overlay checks, and a report of every page they left out."""
     covers = [f for f in forensics.fills if _is_cover(f)]
     crowded = {
         page
@@ -354,26 +356,22 @@ def _pdf_signals(forensics: PdfForensics, bank: str | None) -> list[IntegritySig
     spans = tuple(s for s in forensics.spans if s.page not in crowded)
     covers = [f for f in covers if f.page not in crowded]
 
-    signals.extend(_size_outliers(spans))
+    signals = _size_outliers(spans)
     overlays, over_budget = _overlays(spans, covers)
     signals.extend(overlays)
     if forensics.unreadable:
         signals.append(
-            IntegritySignal(
-                "checks_skipped",
-                "warn",
+            _skipped(
                 f"{forensics.unreadable} text runs or fills have coordinates that are not "
-                "numbers. The size and overlay checks left them out. Inspect the file by eye.",
+                "numbers. The size and overlay checks left them out. Inspect the file by eye."
             )
         )
     skipped = crowded | over_budget | set(forensics.oversized)
     if skipped:
         signals.append(
-            IntegritySignal(
-                "checks_skipped",
-                "warn",
-                f"{len(skipped)} pages hold more text or drawing than the size and overlay "
-                "checks will compare. A bank export stays near a few hundred objects a page. "
+            _skipped(
+                f"{len(skipped)} pages hold more content than the size and overlay checks "
+                "will compare. A bank export stays near a few hundred objects a page. "
                 "Inspect those pages by eye.",
                 page=min(skipped),
             )
@@ -464,6 +462,7 @@ def _overlays(
             for span in page_spans:
                 if span.seqno in seen or span.seqno >= fill.seqno:
                     continue
+                # The run's box is a cheap filter before the per-glyph test.
                 if _overlap(span.bbox, fill.bbox) > 0 and _hides_a_glyph(span, fill):
                     seen.add(span.seqno)
                     signals.append(
@@ -479,6 +478,7 @@ def _overlays(
 
 
 def _hides_a_glyph(span: PdfSpan, fill: PdfFill) -> bool:
+    # A hand-built span has no glyph boxes. Its run box stands in for one.
     for box in span.glyphs or (span.bbox,):
         area = _area(box)
         if area > 0 and _overlap(box, fill.bbox) >= _COVER_RATIO * area:

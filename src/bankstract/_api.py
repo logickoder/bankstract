@@ -15,9 +15,7 @@ from typing import TypeVar
 from ._isolate import (
     DEFAULT_MEMORY_MB,
     DEFAULT_TIMEOUT,
-    payload_of,
-    run_isolated,
-    source_of,
+    run_isolated_call,
 )
 from ._progress import ProgressCallback, emit, progress_scope
 from ._source import Source, rewind
@@ -97,12 +95,8 @@ def detect(
     Detection reads the file, so it is exposed to a crafted one too."""
     src = normalize_source(source)
     if isolate:
-        return run_isolated(_detect_job, payload_of(src), timeout=timeout, memory_mb=memory_mb)
+        return run_isolated_call(detect, src, timeout=timeout, memory_mb=memory_mb)
     return _detect(src, banks=all_parsers().keys())
-
-
-def _detect_job(payload: Path | bytes) -> str | None:
-    return detect(source_of(payload))
 
 
 def _dispatch(
@@ -174,10 +168,10 @@ def parse(
     on Linux only. Adds about 0.3s a call. `progress_callback` still gets the
     same events, in order, as the worker fires them."""
     if isolate:
-        return run_isolated(
-            _parse_job,
-            payload_of(normalize_source(source)),
-            bank,
+        return run_isolated_call(
+            parse,
+            normalize_source(source),
+            bank=bank,
             timeout=timeout,
             memory_mb=memory_mb,
             on_progress=progress_callback,
@@ -199,16 +193,6 @@ def parse(
             worker=_parse_call,
             none_match_msg="no registered parser detected this source",
         )
-
-
-def _parse_job(payload: Path | bytes, bank: str | None) -> ParseResult:
-    return parse(source_of(payload), bank=bank)
-
-
-def _convert_job(
-    payload: Path | bytes, format: OutputFormat, bank: str | None, reconcile: bool
-) -> bytes:
-    return convert(source_of(payload), format=format, bank=bank, reconcile=reconcile)
 
 
 def convert(
@@ -243,12 +227,12 @@ def convert(
     """
     check_format(format)  # fail before the parse, not after
     if isolate:
-        return run_isolated(
-            _convert_job,
-            payload_of(normalize_source(source)),
-            format,
-            bank,
-            reconcile,
+        return run_isolated_call(
+            convert,
+            normalize_source(source),
+            format=format,
+            bank=bank,
+            reconcile=reconcile,
             timeout=timeout,
             memory_mb=memory_mb,
             on_progress=progress_callback,
@@ -262,10 +246,6 @@ def convert(
         if reconcile:
             result = reconcile_result(result)
         return serialize(result, format)
-
-
-def _redact_job(payload: Path | bytes, bank: str | None) -> RedactResult:
-    return redact(source_of(payload), bank=bank)
 
 
 def redact(
@@ -292,10 +272,10 @@ def redact(
     `isolate=True` runs the redaction in a child process, as `parse()` does.
     `progress_callback` still gets the same events, in order."""
     if isolate:
-        return run_isolated(
-            _redact_job,
-            payload_of(normalize_source(source)),
-            bank,
+        return run_isolated_call(
+            redact,
+            normalize_source(source),
+            bank=bank,
             timeout=timeout,
             memory_mb=memory_mb,
             on_progress=progress_callback,

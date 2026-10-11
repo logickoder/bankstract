@@ -4,6 +4,7 @@ import operator
 import os
 import sys
 import time
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,6 @@ import pytest
 from bankstract import convert, detect, parse, redact
 from bankstract._isolate import run_isolated
 from bankstract._progress import ProgressEvent, emit
-from bankstract._pymupdf import new_doc, open_doc
 from bankstract.integrity import inspect
 from bankstract.schema import (
     EncryptedSourceError,
@@ -23,7 +23,7 @@ from bankstract.schema import (
 )
 
 from ._fixtures import parsed
-from ._forge import ZENITH, balance_span, retype
+from ._forge import ZENITH, blank_pdf, forged_balance_pdf, form_page, locked_pdf
 
 
 def _hog() -> int:
@@ -78,71 +78,8 @@ def test_errors_cross_the_process_boundary() -> None:
 
 
 def test_encrypted_source_still_raises_when_isolated(tmp_path: Path) -> None:
-    doc: Any = new_doc()
-    doc.new_page()
-    locked = tmp_path / "locked.pdf"
-    doc.save(str(locked), encryption=3, user_pw="x", owner_pw="y")
-    doc.close()
     with pytest.raises(EncryptedSourceError):
-        inspect(locked, bank="zenith", isolate=True)
-
-
-def _form_page(tmp_path: Path, runs: int) -> Path:
-    """A page of 62 bytes that invokes a form holding `runs` text runs. The
-    content-size gate reads the page stream only, so it never trips."""
-    body = b"\n".join(
-        b"BT /helv 6 Tf %d %d Td (x) Tj ET" % (10 + i % 500, 10 + (i // 500) % 700)
-        for i in range(runs)
-    )
-    doc: Any = new_doc()
-    page = doc.new_page()
-    page.insert_text((10, 10), "a", fontsize=6)
-    font = page.get_fonts()[0][0]
-    form = doc.get_new_xref()
-    doc.update_object(
-        form,
-        f"<< /Type /XObject /Subtype /Form /BBox [0 0 612 842] "
-        f"/Resources << /Font << /helv {font} 0 R >> >> >>",
-    )
-    doc.update_stream(form, body)
-    doc.xref_set_key(
-        page.xref, "Resources", f"<< /Font << /helv {font} 0 R >> /XObject << /Fm0 {form} 0 R >> >>"
-    )
-    xref = page.get_contents()[0]
-    doc.update_stream(xref, doc.xref_stream(xref) + b"\nq /Fm0 Do Q\n")
-    out = tmp_path / "form.pdf"
-    doc.save(str(out))
-    doc.close()
-    return out
-
-
-def test_a_runaway_form_page_is_cut_off_not_read(tmp_path: Path) -> None:
-    # 100k runs in a form take about 4s and 180 MB to extract in process, and the
-    # size gate cannot see them. Isolated, the worker is killed at the limit.
-    crafted = _form_page(tmp_path, 100_000)
-    start = time.perf_counter()
-    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
-        inspect(crafted, bank="zenith", isolate=True, timeout=1)
-    assert time.perf_counter() - start < 15
-
-
-def _blank_pdf(tmp_path: Path) -> Path:
-    doc: Any = new_doc()
-    doc.new_page().insert_text((60, 60), "FOO BAR", fontsize=10)
-    out = tmp_path / "blank.pdf"
-    doc.save(str(out))
-    doc.close()
-    return out
-
-
-def _retyped_balance(tmp_path: Path) -> Path:
-    """A zenith statement with one balance changed, so the chain breaks."""
-    doc: Any = open_doc(ZENITH)
-    retype(doc, balance_span())
-    out = tmp_path / "forged.pdf"
-    doc.save(str(out))
-    doc.close()
-    return out
+        inspect(locked_pdf(tmp_path), bank="zenith", isolate=True)
 
 
 def test_isolated_parse_matches_in_process() -> None:
@@ -161,7 +98,7 @@ def test_isolated_convert_is_byte_identical(fmt: Any) -> None:
 
 
 def test_parse_errors_keep_their_attributes_across_the_boundary(tmp_path: Path) -> None:
-    blank = _blank_pdf(tmp_path)
+    blank = blank_pdf(tmp_path)
     with pytest.raises(ParseError) as plain:
         parse(blank, bank="zenith")
     with pytest.raises(ParseError) as isolated:
@@ -173,7 +110,7 @@ def test_parse_errors_keep_their_attributes_across_the_boundary(tmp_path: Path) 
 
 
 def test_reconciliation_errors_keep_their_attributes_across_the_boundary(tmp_path: Path) -> None:
-    forged = _retyped_balance(tmp_path)
+    forged = forged_balance_pdf(tmp_path)
     with pytest.raises(ReconciliationError) as plain:
         convert(forged)
     with pytest.raises(ReconciliationError) as isolated:
@@ -185,44 +122,8 @@ def test_reconciliation_errors_keep_their_attributes_across_the_boundary(tmp_pat
     assert str(isolated.value) == str(plain.value)
 
 
-def test_a_runaway_page_cannot_hang_an_isolated_parse(tmp_path: Path) -> None:
-    crafted = _form_page(tmp_path, 100_000)
-    start = time.perf_counter()
-    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
-        parse(crafted, bank="zenith", isolate=True, timeout=1)
-    assert time.perf_counter() - start < 15
-
-
-def test_a_runaway_page_cannot_hang_an_isolated_convert(tmp_path: Path) -> None:
-    crafted = _form_page(tmp_path, 100_000)
-    start = time.perf_counter()
-    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
-        convert(crafted, bank="zenith", isolate=True, timeout=1)
-    assert time.perf_counter() - start < 15
-
-
 def test_a_resource_limit_is_a_parse_error() -> None:
     assert issubclass(ResourceLimitError, ParseError)
-
-
-@pytest.mark.parametrize("call", [parse, convert])
-def test_isolate_true_hands_the_call_to_a_worker(
-    call: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def spy(*_args: Any, **_kwargs: Any) -> str:
-        return "ran in a worker"
-
-    monkeypatch.setattr("bankstract._api.run_isolated", spy)
-    assert call(ZENITH, isolate=True) == "ran in a worker"
-
-
-@pytest.mark.parametrize("call", [parse, convert])
-def test_isolate_false_never_starts_a_worker(call: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fail(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("a worker started without isolate=True")
-
-    monkeypatch.setattr("bankstract._api.run_isolated", fail)
-    call(ZENITH)
 
 
 def test_isolated_detect_matches_in_process() -> None:
@@ -242,49 +143,11 @@ def test_isolated_redact_matches_in_process() -> None:
     )
 
 
-@pytest.mark.parametrize("call", [detect, redact])
-def test_isolate_true_hands_detect_and_redact_to_a_worker(
-    call: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def spy(*_args: Any, **_kwargs: Any) -> str:
-        return "ran in a worker"
-
-    monkeypatch.setattr("bankstract._api.run_isolated", spy)
-    assert call(ZENITH, isolate=True) == "ran in a worker"
-
-
-@pytest.mark.parametrize("call", [detect, redact])
-def test_isolate_false_never_starts_a_worker_for_detect_or_redact(
-    call: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fail(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("a worker started without isolate=True")
-
-    monkeypatch.setattr("bankstract._api.run_isolated", fail)
-    call(ZENITH)
-
-
-def test_a_runaway_page_cannot_hang_an_isolated_detect(tmp_path: Path) -> None:
-    crafted = _form_page(tmp_path, 100_000)
-    start = time.perf_counter()
-    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
-        detect(crafted, isolate=True, timeout=1)
-    assert time.perf_counter() - start < 15
-
-
-def test_a_runaway_page_cannot_hang_an_isolated_redact(tmp_path: Path) -> None:
-    crafted = _form_page(tmp_path, 100_000)
-    start = time.perf_counter()
-    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
-        redact(crafted, bank="zenith", isolate=True, timeout=1)
-    assert time.perf_counter() - start < 15
-
-
 # Jobs for the streaming tests. They run in the child, so they live at module level.
 def _emit_slowly() -> str:
     for i in (1, 2, 3):
         emit("step", i, 3)
-        time.sleep(0.6)
+        time.sleep(0.3)
     return "finished"
 
 
@@ -308,7 +171,7 @@ def _return_big(size: int) -> bytes:
 
 def _emit_then_touch(marker: str) -> None:
     emit("step", 1, 2)
-    time.sleep(2)
+    time.sleep(0.5)
     Path(marker).touch()
 
 
@@ -332,11 +195,11 @@ def test_events_arrive_while_the_worker_is_still_running() -> None:
     )
     finished = time.perf_counter()
     assert result == "finished"
-    # Three events 0.6s apart, then the result. Buffered until the end they would
+    # Three events 0.3s apart, then the result. Buffered until the end they would
     # all land within a few milliseconds of `finished`.
     assert len(arrivals) == 4  # three steps and `done`
-    assert finished - arrivals[0] > 1.0
-    assert arrivals[0] - start < finished - start - 1.0
+    assert finished - arrivals[0] > 0.5
+    assert arrivals[0] - start < finished - start - 0.5
 
 
 def test_the_timeout_holds_while_events_keep_arriving() -> None:
@@ -377,6 +240,58 @@ def test_a_callback_that_raises_kills_the_worker(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="callback failed"):
         run_isolated(_emit_then_touch, str(marker), timeout=60, on_progress=boom)
-    # A live worker would touch the marker after 2s.
-    time.sleep(3.5)
+    # A live worker would touch the marker 0.5s after its event.
+    time.sleep(1.0)
     assert not marker.exists()
+
+
+@pytest.fixture(scope="module")
+def runaway_page(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    # 100k runs in a form take about 4s and 180 MB to extract in process, and the
+    # size gate cannot see them. Built once: five tests share it.
+    return form_page(tmp_path_factory.mktemp("runaway"), 100_000)
+
+
+RUNAWAY_CALLS: dict[str, Callable[[Path], object]] = {
+    "inspect": lambda p: inspect(p, bank="zenith", isolate=True, timeout=1),
+    "parse": lambda p: parse(p, bank="zenith", isolate=True, timeout=1),
+    "convert": lambda p: convert(p, bank="zenith", isolate=True, timeout=1),
+    "detect": lambda p: detect(p, isolate=True, timeout=1),
+    "redact": lambda p: redact(p, bank="zenith", isolate=True, timeout=1),
+}
+
+
+@pytest.mark.parametrize("call", RUNAWAY_CALLS.values(), ids=RUNAWAY_CALLS.keys())
+def test_a_runaway_page_is_cut_off_not_read(
+    call: Callable[[Path], object], runaway_page: Path
+) -> None:
+    start = time.perf_counter()
+    with pytest.raises(ResourceLimitError, match="stopped after 1s"):
+        call(runaway_page)
+    assert time.perf_counter() - start < 15
+
+
+ENTRY_POINTS = [parse, convert, detect, redact]
+ENTRY_IDS = ["parse", "convert", "detect", "redact"]
+
+
+@pytest.mark.parametrize("call", ENTRY_POINTS, ids=ENTRY_IDS)
+def test_isolate_true_hands_the_call_to_a_worker(
+    call: Callable[..., object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def spy(*_args: Any, **_kwargs: Any) -> str:
+        return "ran in a worker"
+
+    monkeypatch.setattr("bankstract._api.run_isolated_call", spy)
+    assert call(ZENITH, isolate=True) == "ran in a worker"
+
+
+@pytest.mark.parametrize("call", ENTRY_POINTS, ids=ENTRY_IDS)
+def test_isolate_false_never_starts_a_worker(
+    call: Callable[..., object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("a worker started without isolate=True")
+
+    monkeypatch.setattr("bankstract._api.run_isolated_call", fail)
+    call(ZENITH)

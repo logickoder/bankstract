@@ -17,6 +17,7 @@ from bankstract._pymupdf import (  # pyright: ignore[reportPrivateUsage]
     PdfForensics,
     PdfSpan,
     _finite,
+    _finite_run,
     _revisions,
     new_doc,
     open_doc,
@@ -39,8 +40,11 @@ from ._forge import (
     ZENITH,
     append_revision,
     balance_span,
+    blank_pdf,
     column_span,
+    locked_pdf,
     retype,
+    runs_page,
     sample,
 )
 
@@ -230,17 +234,8 @@ def test_row_outside_statement_period_warns() -> None:
     assert [s.row for s in signals] == [0]
 
 
-def _blank_pdf(tmp_path: Path) -> Path:
-    doc: Any = new_doc()
-    doc.new_page().insert_text((60, 60), "FOO BAR", fontsize=10)
-    out = tmp_path / "blank.pdf"
-    doc.save(str(out))
-    doc.close()
-    return out
-
-
 def test_unparseable_with_known_bank_still_runs_file_checks(tmp_path: Path) -> None:
-    report = inspect(_blank_pdf(tmp_path), bank="zenith")
+    report = inspect(blank_pdf(tmp_path), bank="zenith")
     assert report.bank == "zenith"
     assert {"unparseable", "unexpected_producer"} <= _codes(report)
     assert report.signals[0].code == "unparseable"
@@ -248,7 +243,7 @@ def test_unparseable_with_known_bank_still_runs_file_checks(tmp_path: Path) -> N
 
 
 def test_unparseable_without_a_bank_reports_only_the_failure(tmp_path: Path) -> None:
-    report = inspect(_blank_pdf(tmp_path))
+    report = inspect(blank_pdf(tmp_path))
     assert report.bank is None
     assert _codes(report) == {"unparseable"}
 
@@ -257,7 +252,7 @@ def test_file_checks_run_without_a_detected_bank(tmp_path: Path) -> None:
     # Revisions, overlays and sizes need no baseline. A file that dodges
     # detection must not dodge them too.
     forged = tmp_path / "forged.pdf"
-    append_revision(_blank_pdf(tmp_path), forged)
+    append_revision(blank_pdf(tmp_path), forged)
     report = inspect(forged)
     assert report.bank is None
     assert {"unparseable", "incremental_update"} <= _codes(report)
@@ -276,6 +271,16 @@ def test_non_finite_coordinates_are_not_finite() -> None:
     assert _finite((0.0, 0.0, 1.0, 1.0))
 
 
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize("where", ["first", "last"])
+def test_one_non_finite_glyph_makes_the_whole_run_unreadable(bad: float, where: str) -> None:
+    glyphs = [(0.0, 0.0, 5.0, 7.0), (5.0, 0.0, 10.0, 7.0), (10.0, 0.0, 15.0, 7.0)]
+    glyphs[0 if where == "first" else -1] = (0.0, 0.0, bad, 7.0)
+    assert not _finite_run(tuple(glyphs), 7.0)
+    assert not _finite_run(((0.0, 0.0, 5.0, 7.0),), bad)
+    assert _finite_run(((0.0, 0.0, 5.0, 7.0), (5.0, 0.0, 10.0, 7.0)), 7.0)
+
+
 def test_file_that_will_not_open_for_the_file_checks_is_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -283,18 +288,13 @@ def test_file_that_will_not_open_for_the_file_checks_is_reported(
         raise RuntimeError("cannot open")
 
     monkeypatch.setattr("bankstract.integrity.pdf_forensics", fail)
-    report = inspect(_blank_pdf(tmp_path), bank="zenith")
+    report = inspect(blank_pdf(tmp_path), bank="zenith")
     assert _codes(report) == {"unparseable", "checks_skipped"}
 
 
 def test_encrypted_source_still_raises(tmp_path: Path) -> None:
-    doc: Any = new_doc()
-    doc.new_page()
-    out = tmp_path / "locked.pdf"
-    doc.save(str(out), encryption=3, user_pw="x", owner_pw="y")
-    doc.close()
     with pytest.raises(EncryptedSourceError):
-        inspect(out, bank="zenith")
+        inspect(locked_pdf(tmp_path), bank="zenith")
 
 
 def test_modified_date_differing_from_created_warns(tmp_path: Path) -> None:
@@ -630,27 +630,10 @@ def test_overlay_work_past_the_budget_is_skipped_and_said_so(
     assert [s.page for s in report.signals if s.code == "checks_skipped"] == [1]
 
 
-def _runs_page(tmp_path: Path, runs: int) -> Path:
-    """A page of `runs` one-glyph text objects. Each becomes its own run."""
-    body = b"\n".join(
-        b"BT /helv 6 Tf %d %d Td (x) Tj ET" % (10 + i % 500, 10 + (i // 500) % 700)
-        for i in range(runs)
-    )
-    doc: Any = new_doc()
-    page = doc.new_page()
-    page.insert_text((10, 10), "a", fontsize=6)
-    xref = page.get_contents()[0]
-    doc.update_stream(xref, doc.xref_stream(xref) + b"\n" + body)
-    out = tmp_path / "runs.pdf"
-    doc.save(str(out))
-    doc.close()
-    return out
-
-
 def test_a_page_of_runaway_content_is_not_extracted(tmp_path: Path) -> None:
     # 200k runs cost about 360 MB and 8 seconds to extract: some 700 times the
     # file. The per-page cap on runs only applies after all of that is built.
-    crafted = _runs_page(tmp_path, 200_000)
+    crafted = runs_page(tmp_path, 200_000)
     tracemalloc.start()
     start = time.perf_counter()
     try:

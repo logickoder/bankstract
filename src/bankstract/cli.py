@@ -3,7 +3,7 @@ import sys
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, NoReturn, get_args
 
 import click
 
@@ -66,16 +66,8 @@ def _progress_callback(*, quiet: bool) -> ProgressCallback | None:
     return throttle(_stderr_bar, min_interval_ms=100)
 
 
-def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
-    """Shared `-o/-f/--no-reconcile/--quiet` options for every parse-shaped
-    command. Stacked bottom-up; Click binds by parameter name, not decorator
-    order."""
-    f = click.option(
-        "-q",
-        "--quiet",
-        is_flag=True,
-        help="Suppress the progress bar (stderr).",
-    )(f)
+def _isolation_options(f: Callable[..., Any]) -> Callable[..., Any]:
+    """`--isolate` and `--timeout`, identical on every command that reads a file."""
     f = click.option(
         "--isolate",
         is_flag=True,
@@ -88,6 +80,27 @@ def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
         show_default=True,
         help="Seconds the child may run. Only with --isolate.",
     )(f)
+    return f
+
+
+def _exit_unfinished(exc: ResourceLimitError) -> NoReturn:
+    """A worker that could not finish is not a pass: a file that stops the
+    checker is not known to be clean. Print it and exit 2, with no output."""
+    click.echo(f"error: {exc}", err=True)
+    sys.exit(2)
+
+
+def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
+    """Shared `-o/-f/--no-reconcile/--quiet` options for every parse-shaped
+    command. Stacked bottom-up; Click binds by parameter name, not decorator
+    order."""
+    f = click.option(
+        "-q",
+        "--quiet",
+        is_flag=True,
+        help="Suppress the progress bar (stderr).",
+    )(f)
+    f = _isolation_options(f)
     f = click.option("--no-reconcile", is_flag=True, help="Skip reconciliation invariant check.")(f)
     f = click.option(
         "-f",
@@ -204,9 +217,7 @@ def _run(
             timeout=timeout,
         )
     except ResourceLimitError as exc:
-        # Not a pass: a file that stops the parser is not known to be clean.
-        click.echo(f"error: {exc}", err=True)
-        sys.exit(2)
+        _exit_unfinished(exc)
     except ParseError as exc:
         raise click.ClickException(
             f"parse error ({getattr(exc, 'format_version', 'unknown')}): {exc}"
@@ -225,18 +236,7 @@ def _run(
 @click.option(
     "--bank", type=click.Choice(sorted(all_parsers())), default=None, help="Skip detection."
 )
-@click.option(
-    "--isolate",
-    is_flag=True,
-    help="Run in a child process with a time limit. Use it on files you do not trust.",
-)
-@click.option(
-    "--timeout",
-    type=click.FloatRange(min=0, min_open=True),
-    default=DEFAULT_TIMEOUT,
-    show_default=True,
-    help="Seconds the child may run. Only with --isolate.",
-)
+@_isolation_options
 def inspect_cmd(pdf: str, bank: str | None, isolate: bool, timeout: float) -> None:
     """Check a statement for signs of tampering. Report JSON goes to stdout.
     stderr gets one line per signal, with no statement text. Exits 2 when any
@@ -250,9 +250,7 @@ def inspect_cmd(pdf: str, bank: str | None, isolate: bool, timeout: float) -> No
             f"{exc}. Nothing in it can be read. Save an unprotected copy and retry."
         ) from exc
     except ResourceLimitError as exc:
-        # Not a pass: a file that stops the checker is not known to be clean.
-        click.echo(f"error: {exc}", err=True)
-        sys.exit(2)
+        _exit_unfinished(exc)
     click.echo(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
     # stderr lands in logs. `detail` quotes the statement, so it stays in the
     # stdout JSON, which the caller owns.
@@ -284,18 +282,7 @@ def _redactor_command(bank: str) -> click.Command:
     @click.argument("dst", type=click.STRING)
     @click.option("--audit/--no-audit", default=True, help="Print per-page audit to stderr.")
     @click.option("-q", "--quiet", is_flag=True, help="Suppress the progress bar (stderr).")
-    @click.option(
-        "--isolate",
-        is_flag=True,
-        help="Run in a child process with a time limit. Use it on files you do not trust.",
-    )
-    @click.option(
-        "--timeout",
-        type=click.FloatRange(min=0, min_open=True),
-        default=DEFAULT_TIMEOUT,
-        show_default=True,
-        help="Seconds the child may run. Only with --isolate.",
-    )
+    @_isolation_options
     def cmd(src: str, dst: str, audit: bool, quiet: bool, isolate: bool, timeout: float) -> None:
         # Thin wrapper over bankstract.redact — single source of truth for
         # the dispatch logic lives in _api. CLI just handles I/O framing.
@@ -311,8 +298,7 @@ def _redactor_command(bank: str) -> click.Command:
                 timeout=timeout,
             )
         except ResourceLimitError as exc:
-            click.echo(f"error: {exc}", err=True)
-            sys.exit(2)
+            _exit_unfinished(exc)
         except ParseError as exc:
             raise click.ClickException(str(exc)) from exc
 

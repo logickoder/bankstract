@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from bankstract._layout import AMOUNT_TOK
-from bankstract._pymupdf import PdfSpan, open_doc, pdf_forensics
+from bankstract._pymupdf import PdfSpan, new_doc, open_doc, pdf_forensics
 
 from ._fixtures import TESTS_ROOT
 
@@ -73,3 +73,78 @@ def append_revision(src: Path, out: Path) -> None:
     doc[0].insert_text((20, 20), "x", fontsize=6)
     doc.saveIncr()
     doc.close()
+
+
+def blank_pdf(tmp_path: Path) -> Path:
+    """One page of text no parser claims."""
+    doc: Any = new_doc()
+    doc.new_page().insert_text((60, 60), "FOO BAR", fontsize=10)
+    out = tmp_path / "blank.pdf"
+    doc.save(str(out))
+    doc.close()
+    return out
+
+
+def locked_pdf(tmp_path: Path) -> Path:
+    doc: Any = new_doc()
+    doc.new_page()
+    out = tmp_path / "locked.pdf"
+    doc.save(str(out), encryption=3, user_pw="x", owner_pw="y")
+    doc.close()
+    return out
+
+
+def forged_balance_pdf(tmp_path: Path) -> Path:
+    """The zenith sample with one balance changed, so the chain breaks."""
+    doc: Any = open_doc(ZENITH)
+    retype(doc, balance_span())
+    out = tmp_path / "forged.pdf"
+    doc.save(str(out))
+    doc.close()
+    return out
+
+
+def _runs_body(runs: int) -> bytes:
+    """`runs` one-glyph text objects. Each becomes its own run."""
+    return b"\n".join(
+        b"BT /helv 6 Tf %d %d Td (x) Tj ET" % (10 + i % 500, 10 + (i // 500) % 700)
+        for i in range(runs)
+    )
+
+
+def runs_page(tmp_path: Path, runs: int) -> Path:
+    """A page whose own content stream holds `runs` text runs."""
+    doc: Any = new_doc()
+    page = doc.new_page()
+    page.insert_text((10, 10), "a", fontsize=6)
+    xref = page.get_contents()[0]
+    doc.update_stream(xref, doc.xref_stream(xref) + b"\n" + _runs_body(runs))
+    out = tmp_path / "runs.pdf"
+    doc.save(str(out))
+    doc.close()
+    return out
+
+
+def form_page(tmp_path: Path, runs: int) -> Path:
+    """A page of 62 bytes that invokes a form holding `runs` text runs. The
+    content-size gate reads the page stream only, so it never trips."""
+    doc: Any = new_doc()
+    page = doc.new_page()
+    page.insert_text((10, 10), "a", fontsize=6)
+    font = page.get_fonts()[0][0]
+    form = doc.get_new_xref()
+    doc.update_object(
+        form,
+        f"<< /Type /XObject /Subtype /Form /BBox [0 0 612 842] "
+        f"/Resources << /Font << /helv {font} 0 R >> >> >>",
+    )
+    doc.update_stream(form, _runs_body(runs))
+    doc.xref_set_key(
+        page.xref, "Resources", f"<< /Font << /helv {font} 0 R >> /XObject << /Fm0 {form} 0 R >> >>"
+    )
+    xref = page.get_contents()[0]
+    doc.update_stream(xref, doc.xref_stream(xref) + b"\nq /Fm0 Do Q\n")
+    out = tmp_path / "form.pdf"
+    doc.save(str(out))
+    doc.close()
+    return out

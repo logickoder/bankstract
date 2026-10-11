@@ -15,6 +15,15 @@ from typing import IO
 Source = Path | IO[bytes]
 
 
+def read_bytes(source: Source) -> bytes:
+    """All of `source` as bytes, from the start. One rule for a path and a
+    stream, shared by the PDF facade and the isolation payload."""
+    if isinstance(source, Path):
+        return source.read_bytes()
+    rewind(source)
+    return source.read()
+
+
 def rewind(source: Source) -> None:
     """Reset the stream cursor to 0 if `source` is a file-like. No-op for
     `Path`. Every reader (pdfplumber, openpyxl) needs the source at offset

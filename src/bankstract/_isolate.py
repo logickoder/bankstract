@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from ._progress import ProgressCallback, ProgressEvent, progress_scope
-from ._source import Source, rewind
+from ._source import Source, read_bytes
 from .schema import ResourceLimitError
 
 if sys.platform != "win32":
@@ -38,10 +38,7 @@ _MAX_MESSAGE = 512 * 1024 * 1024
 def payload_of(source: Source) -> Path | bytes:
     """A source the child can open. A stream cannot cross the process boundary,
     so its bytes do. A path crosses as is and the child reads it."""
-    if isinstance(source, Path):
-        return source
-    rewind(source)
-    return source.read()
+    return source if isinstance(source, Path) else read_bytes(source)
 
 
 def source_of(payload: Path | bytes) -> Source:
@@ -147,3 +144,31 @@ def run_isolated(
             ) from value
         raise value
     return value  # type: ignore[no-any-return]
+
+
+def _call(fn: Callable[..., _T], payload: Path | bytes, kwargs: dict[str, Any]) -> _T:
+    # `isolate` is not forwarded, so the child never isolates again.
+    return fn(source_of(payload), **kwargs)
+
+
+def run_isolated_call(
+    fn: Callable[..., _T],
+    source: Source,
+    *,
+    timeout: float,
+    memory_mb: int | None,
+    on_progress: ProgressCallback | None = None,
+    **kwargs: Any,
+) -> _T:
+    """`fn(source, **kwargs)` in a child process: the shape every public entry
+    point shares. `fn` crosses as a module-level name, `source` as a path or
+    bytes. See `run_isolated` for the limits and the progress stream."""
+    return run_isolated(
+        _call,
+        fn,
+        payload_of(source),
+        kwargs,
+        timeout=timeout,
+        memory_mb=memory_mb,
+        on_progress=on_progress,
+    )

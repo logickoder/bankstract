@@ -12,12 +12,12 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from itertools import chain
 from typing import Any, cast
 
 import pymupdf as _pymupdf  # type: ignore[import-untyped]
 
-from ._source import Source, rewind
+from ._source import Source, read_bytes, rewind
 
 # cast bypasses pyright's reportAttributeAccessIssue since pymupdf has no stubs.
 PDF_REDACT_IMAGE_NONE: Any = cast(Any, _pymupdf).PDF_REDACT_IMAGE_NONE
@@ -94,13 +94,6 @@ class PdfForensics:
         return frozenset(s.font for s in self.spans)
 
 
-def _raw_bytes(source: Source) -> bytes:
-    if isinstance(source, Path):
-        return source.read_bytes()
-    rewind(source)
-    return source.read()
-
-
 def _revisions(raw: bytes) -> int:
     """Revisions in a PDF file: the number of `startxref` keywords. Not
     `startxref <offset>`: PDF reads a comment as whitespace, so
@@ -125,8 +118,9 @@ def _revisions(raw: bytes) -> int:
     return revisions
 
 
-def _bbox(raw: Any) -> BBox:
-    return (float(raw[0]), float(raw[1]), float(raw[2]), float(raw[3]))
+def _finite_run(glyphs: tuple[BBox, ...], size: float) -> bool:
+    # One sum for the run: NaN or infinity anywhere makes the total non-finite.
+    return math.isfinite(sum(chain.from_iterable(glyphs)) + size)
 
 
 def _finite(box: BBox) -> bool:
@@ -138,7 +132,7 @@ def _finite(box: BBox) -> bool:
 def pdf_forensics(source: Source) -> PdfForensics:
     """Metadata, revision count, text runs and fills with draw order. Fonts
     lose their subset prefix (`ABCDEF+Name` becomes `Name`)."""
-    raw = _raw_bytes(source)
+    raw = read_bytes(source)
     revisions = _revisions(raw)
 
     doc: Any = _pymupdf.open(stream=raw, filetype="pdf")
@@ -159,7 +153,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
                 visible = [c for c in run["chars"] if chr(c[0]).strip()]
                 if not visible:
                     continue
-                glyphs = tuple(_bbox(c[3]) for c in visible)
+                glyphs: tuple[BBox, ...] = tuple(c[3] for c in visible)
                 box: BBox = (
                     min(g[0] for g in glyphs),
                     min(g[1] for g in glyphs),
@@ -167,7 +161,7 @@ def pdf_forensics(source: Source) -> PdfForensics:
                     max(g[3] for g in glyphs),
                 )
                 size = float(run["size"])
-                if not (all(_finite(g) for g in glyphs) and math.isfinite(size)):
+                if not _finite_run(glyphs, size):
                     unreadable += 1
                     continue
                 spans.append(
@@ -181,17 +175,18 @@ def pdf_forensics(source: Source) -> PdfForensics:
                         glyphs=glyphs,
                     )
                 )
-            for path in page.get_drawings():
-                fill = path.get("fill")
-                if fill is None:
+            # The c-variant returns plain tuples, not a Rect per path. Same keys.
+            for path in page.get_cdrawings():
+                if path.get("fill") is None:
                     continue
-                if not _finite(_bbox(path["rect"])):
+                rect: BBox = path["rect"]
+                if not _finite(rect):
                     unreadable += 1
                     continue
                 fills.append(
                     PdfFill(
                         page=number,
-                        bbox=_bbox(path["rect"]),
+                        bbox=rect,
                         opacity=float(path.get("fill_opacity") or 1.0),
                         seqno=int(path["seqno"]),
                     )
