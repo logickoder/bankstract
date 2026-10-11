@@ -21,6 +21,7 @@ uv run pytest
 5. Add `tests/<bank>/test_parser.py` + `tests/<bank>/test_redactor.py`. Multi-format banks parametrize tests over both `.pdf` and `.xlsx` fixtures.
 6. Register the bank in `tests/_fixtures.py` (`FIXTURES`, `RECONCILIATION`) and `_PRECISION` in `tests/test_fixture_invariants.py`. The cross-bank tests pick it up from there.
 7. Set `has_time=True` only on rows that print a time. Never set `ParseResult.reconciliation`.
+8. Add the bank to `_BASELINES` in `integrity.py` (`pdf_producer`, `pdf_fonts`, `pdf_id_halves_equal` when the raw file's trailer `/ID` halves are equal, and `xlsx_application` for XLSX) once its raw statement shows a stable signature. Read the values from `_local/statement.*`, never from the committed sample. `tests/test_integrity.py` picks the bank up from `FIXTURES` and requires its raw file to come back clean. Also confirm no fill is drawn over text in the raw statement: the cover check flags a tenth of a glyph at half opacity, and a stamp or watermark painted over the text would raise an error on a genuine file.
 
 ### Parser self-registration
 
@@ -100,6 +101,14 @@ Non-canonical / app-specific writers (BB-Wallet CSV, YNAB CSV, Money Manager, et
 ## Reconciliation invariant
 
 Every parser MUST produce rows where `prev.balance ± debit/credit == curr.balance` (banks with a balance column) OR where the parsed credit/debit sums match the statement header's totals (banks without). `reconcile_result` runs whichever checks have evidence and raises when none can. Never weaken `reconcile.py` to make tests pass. The parser is wrong, not the invariant.
+
+## Integrity checks
+
+`inspect()` reports evidence of tampering. It never says a statement is forged. Read [docs/rules/integrity.md](docs/rules/integrity.md) before adding a check. Three rules carry the weight:
+
+- A check that flags a raw bank statement is wrong, not the statement.
+- Every check ships with a forged test file that trips it.
+- Baselines come from raw `_local` statements. Redacted samples carry the redactor's fonts and writer.
 
 ## Commits
 

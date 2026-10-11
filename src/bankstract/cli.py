@@ -1,18 +1,27 @@
+import json
 import sys
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, NoReturn, get_args
 
 import click
 
 from . import __version__, convert, detect
+from ._isolate import DEFAULT_TIMEOUT
 from ._progress import ProgressCallback, ProgressEvent, throttle
 from ._source import Source
 from ._xlsx import sniff_format
+from .integrity import inspect as inspect_source
 from .parsers import all_parsers, get
 from .redactors import all_redactors
-from .schema import OutputFormat, ParseError, ReconciliationError
+from .schema import (
+    EncryptedSourceError,
+    OutputFormat,
+    ParseError,
+    ReconciliationError,
+    ResourceLimitError,
+)
 
 
 def _read_source(pdf_arg: str) -> Source:
@@ -57,6 +66,40 @@ def _progress_callback(*, quiet: bool) -> ProgressCallback | None:
     return throttle(_stderr_bar, min_interval_ms=100)
 
 
+def _isolation_options(f: Callable[..., Any]) -> Callable[..., Any]:
+    """`--isolate` and `--timeout`, identical on every command that reads a file."""
+    f = click.option(
+        "--isolate",
+        is_flag=True,
+        help="Run in a child process with a time limit. Use it on files you do not trust.",
+    )(f)
+    f = click.option(
+        "--timeout",
+        type=click.FloatRange(min=0, min_open=True),
+        default=None,
+        help=f"Seconds the child may run (default {DEFAULT_TIMEOUT:g}). Only with --isolate.",
+    )(f)
+    return f
+
+
+def _timeout_for(isolate: bool, timeout: float | None) -> float:
+    """`--timeout` limits the child, so it means nothing without `--isolate`.
+    Refuse it there: accepted and ignored, it would suggest a cap that is not on."""
+    if timeout is not None and not isolate:
+        raise click.ClickException(
+            "--timeout needs --isolate. Nothing else enforces a time limit. "
+            "Add --isolate, or drop --timeout."
+        )
+    return DEFAULT_TIMEOUT if timeout is None else timeout
+
+
+def _exit_unfinished(exc: ResourceLimitError) -> NoReturn:
+    """A worker that could not finish is not a pass: a file that stops the
+    checker is not known to be clean. Print it and exit 2, with no output."""
+    click.echo(f"error: {exc}", err=True)
+    sys.exit(2)
+
+
 def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
     """Shared `-o/-f/--no-reconcile/--quiet` options for every parse-shaped
     command. Stacked bottom-up; Click binds by parameter name, not decorator
@@ -67,6 +110,7 @@ def _io_options(f: Callable[..., Any]) -> Callable[..., Any]:
         is_flag=True,
         help="Suppress the progress bar (stderr).",
     )(f)
+    f = _isolation_options(f)
     f = click.option("--no-reconcile", is_flag=True, help="Skip reconciliation invariant check.")(f)
     f = click.option(
         "-f",
@@ -98,25 +142,46 @@ def list_parsers_cmd() -> None:
 @main.command("auto")
 @click.argument("pdf", type=click.STRING)
 @_io_options
-def auto(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bool) -> None:
+def auto(
+    pdf: str,
+    output: str,
+    fmt: OutputFormat,
+    no_reconcile: bool,
+    quiet: bool,
+    isolate: bool,
+    timeout: float | None,
+) -> None:
     """Detect bank automatically and parse."""
+    limit = _timeout_for(isolate, timeout)
     source = _read_source(pdf)
     try:
-        name = detect(source)
+        # detect() reads the file too, so isolated it runs in a worker as well.
+        name = detect(source, isolate=isolate, timeout=limit)
+    except ResourceLimitError as exc:
+        _exit_unfinished(exc)
     except ParseError as exc:
         raise click.ClickException(str(exc)) from exc
     if name is None:
         raise click.ClickException(f"no registered parser detected {pdf}")
     _info(f"detected: {name}", stdout_used=(output == "-"))
-    _run(name, source, output, fmt, no_reconcile, quiet)
+    _run(name, source, output, fmt, no_reconcile, quiet, isolate, limit)
 
 
 def _bank_command(bank: str) -> click.Command:
     @main.command(bank)
     @click.argument("pdf", type=click.STRING)
     @_io_options
-    def cmd(pdf: str, output: str, fmt: OutputFormat, no_reconcile: bool, quiet: bool) -> None:
-        _run(bank, _read_source(pdf), output, fmt, no_reconcile, quiet)
+    def cmd(
+        pdf: str,
+        output: str,
+        fmt: OutputFormat,
+        no_reconcile: bool,
+        quiet: bool,
+        isolate: bool,
+        timeout: float | None,
+    ) -> None:
+        limit = _timeout_for(isolate, timeout)
+        _run(bank, _read_source(pdf), output, fmt, no_reconcile, quiet, isolate, limit)
 
     return cmd
 
@@ -139,15 +204,18 @@ def _check_supported(bank: str, source: Source) -> None:
 
 
 def _run(
-    bank: str,
+    bank: str | None,
     source: Source,
     output: str,
     fmt: OutputFormat,
     no_reconcile: bool,
     quiet: bool,
+    isolate: bool,
+    timeout: float,
 ) -> None:
     stdout_used = output == "-"
-    _check_supported(bank, source)
+    if bank is not None:
+        _check_supported(bank, source)
     try:
         data = convert(
             source,
@@ -155,7 +223,11 @@ def _run(
             bank=bank,
             reconcile=not no_reconcile,
             progress_callback=_progress_callback(quiet=quiet),
+            isolate=isolate,
+            timeout=timeout,
         )
+    except ResourceLimitError as exc:
+        _exit_unfinished(exc)
     except ParseError as exc:
         raise click.ClickException(
             f"parse error ({getattr(exc, 'format_version', 'unknown')}): {exc}"
@@ -167,6 +239,41 @@ def _run(
 
     _write_bytes(data, output)
     _info(f"wrote {len(data)} bytes -> {output}", stdout_used=stdout_used)
+
+
+@main.command("inspect")
+@click.argument("pdf", type=click.STRING)
+@click.option(
+    "--bank", type=click.Choice(sorted(all_parsers())), default=None, help="Skip detection."
+)
+@_isolation_options
+def inspect_cmd(pdf: str, bank: str | None, isolate: bool, timeout: float | None) -> None:
+    """Check a statement for signs of tampering. Report JSON goes to stdout.
+    stderr gets one line per signal, with no statement text. Exits 2 when any
+    signal is an error, or when an isolated worker could not finish. Exits 0
+    otherwise."""
+    limit = _timeout_for(isolate, timeout)
+    source = _read_source(pdf)
+    try:
+        report = inspect_source(source, bank=bank, isolate=isolate, timeout=limit)
+    except EncryptedSourceError as exc:
+        raise click.ClickException(
+            f"{exc}. Nothing in it can be read. Save an unprotected copy and retry."
+        ) from exc
+    except ResourceLimitError as exc:
+        _exit_unfinished(exc)
+    click.echo(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+    # stderr lands in logs. `detail` quotes the statement, so it stays in the
+    # stdout JSON, which the caller owns.
+    for signal in report.signals:
+        where = ", ".join(
+            f"{name} {value}"
+            for name, value in (("page", signal.page), ("row", signal.row))
+            if value is not None
+        )
+        click.echo(f"{signal.severity}: {signal.code}" + (f" ({where})" if where else ""), err=True)
+    if report.errors:
+        sys.exit(2)
 
 
 @main.group()
@@ -186,16 +293,26 @@ def _redactor_command(bank: str) -> click.Command:
     @click.argument("dst", type=click.STRING)
     @click.option("--audit/--no-audit", default=True, help="Print per-page audit to stderr.")
     @click.option("-q", "--quiet", is_flag=True, help="Suppress the progress bar (stderr).")
-    def cmd(src: str, dst: str, audit: bool, quiet: bool) -> None:
+    @_isolation_options
+    def cmd(
+        src: str, dst: str, audit: bool, quiet: bool, isolate: bool, timeout: float | None
+    ) -> None:
         # Thin wrapper over bankstract.redact — single source of truth for
         # the dispatch logic lives in _api. CLI just handles I/O framing.
         from . import redact as _lib_redact
 
+        limit = _timeout_for(isolate, timeout)
         source = _read_source(src)
         try:
             result = _lib_redact(
-                source, bank=bank, progress_callback=_progress_callback(quiet=quiet)
+                source,
+                bank=bank,
+                progress_callback=_progress_callback(quiet=quiet),
+                isolate=isolate,
+                timeout=limit,
             )
+        except ResourceLimitError as exc:
+            _exit_unfinished(exc)
         except ParseError as exc:
             raise click.ClickException(str(exc)) from exc
 

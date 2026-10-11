@@ -12,6 +12,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TypeVar
 
+from ._isolate import (
+    DEFAULT_MEMORY_MB,
+    DEFAULT_TIMEOUT,
+    run_isolated_call,
+)
 from ._progress import ProgressCallback, emit, progress_scope
 from ._source import Source, rewind
 from .parsers import all_parsers, get
@@ -32,7 +37,7 @@ SourceLike = Source | str
 _W = TypeVar("_W", ParseResult, RedactResult)
 
 
-def _normalize(source: SourceLike) -> Source:
+def normalize_source(source: SourceLike) -> Source:
     if isinstance(source, str):
         return Path(source)
     return source
@@ -76,10 +81,22 @@ def list_redactors() -> list[str]:
     return sorted(all_redactors())
 
 
-def detect(source: SourceLike) -> str | None:
+def detect(
+    source: SourceLike,
+    *,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
+) -> str | None:
     """Return the bank name whose parser scores highest on `source`, or
-    None if no parser claims it."""
-    return _detect(_normalize(source), banks=all_parsers().keys())
+    None if no parser claims it.
+
+    `isolate=True` runs the detection in a child process, as `parse()` does.
+    Detection reads the file, so it is exposed to a crafted one too."""
+    src = normalize_source(source)
+    if isolate:
+        return run_isolated_call(detect, src, timeout=timeout, memory_mb=memory_mb)
+    return _detect(src, banks=all_parsers().keys())
 
 
 def _dispatch(
@@ -99,7 +116,7 @@ def _dispatch(
     exception surface consistent across format-sniff failures and parser
     layout drift.
     """
-    src = _normalize(source)
+    src = normalize_source(source)
     if bank is None:
         try:
             name = _detect(src, banks=candidate_banks)
@@ -127,6 +144,9 @@ def parse(
     *,
     bank: str | None = None,
     progress_callback: ProgressCallback | None = None,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> ParseResult:
     """Parse `source` into a ParseResult.
 
@@ -139,7 +159,23 @@ def parse(
     `progress_callback` receives `ProgressEvent(stage, current, total)` at
     each lifecycle point (`detect`, `open`, `extract_page` × N,
     `walk_page` × N, `done`). Wrap with `bankstract.throttle` for a CLI
-    bar; pass the raw callback for full-fidelity telemetry."""
+    bar; pass the raw callback for full-fidelity telemetry.
+
+    `isolate=True` runs the parse in a child process, for files you did not
+    make: a crafted PDF can cost gigabytes inside one extraction call, which
+    nothing in-process can stop. A child that passes `timeout` seconds, runs
+    out of memory or dies raises `ResourceLimitError`. `memory_mb` is enforced
+    on Linux only. Adds about 0.3s a call. `progress_callback` still gets the
+    same events, in order, as the worker fires them."""
+    if isolate:
+        return run_isolated_call(
+            parse,
+            normalize_source(source),
+            bank=bank,
+            timeout=timeout,
+            memory_mb=memory_mb,
+            on_progress=progress_callback,
+        )
 
     def _parse_call(parser: Parser | Redactor, src: Source) -> ParseResult:
         assert isinstance(parser, Parser)  # _dispatch contract: registry returns Parser
@@ -166,6 +202,9 @@ def convert(
     bank: str | None = None,
     reconcile: bool = True,
     progress_callback: ProgressCallback | None = None,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> bytes:
     """`parse` + `reconcile_result` + `serialize` in one call. Same bytes as
     the CLI. Callers that need the `ParseResult` too run the three steps
@@ -181,8 +220,23 @@ def convert(
     or a seekable binary stream (e.g. `io.BytesIO`). An unrecognised
     output `format` raises `ValueError`; a layout mismatch surfaces as
     `ParseError`; an invariant break surfaces as `ReconciliationError`.
+
+    `isolate=True` runs the whole call in a child process, as `parse()` does.
+    The exceptions above still cross, with their `bank`, `format_version` and
+    `row_index`. A child that cannot finish raises `ResourceLimitError`.
     """
     check_format(format)  # fail before the parse, not after
+    if isolate:
+        return run_isolated_call(
+            convert,
+            normalize_source(source),
+            format=format,
+            bank=bank,
+            reconcile=reconcile,
+            timeout=timeout,
+            memory_mb=memory_mb,
+            on_progress=progress_callback,
+        )
 
     with progress_scope(progress_callback):
         # Inner parse() gets no callback, so it neither clobbers this scope
@@ -199,6 +253,9 @@ def redact(
     *,
     bank: str | None = None,
     progress_callback: ProgressCallback | None = None,
+    isolate: bool = False,
+    timeout: float = DEFAULT_TIMEOUT,
+    memory_mb: int | None = DEFAULT_MEMORY_MB,
 ) -> RedactResult:
     """Redact `source` into a `RedactResult` carrying bytes + metadata.
 
@@ -210,7 +267,19 @@ def redact(
     callers (HTTP responses, archives, Cloud workers) get the payload
     without tempfile cleanup. Unrecognised format → `ParseError`.
 
-    `progress_callback` receives `redact_page` × N + `done`."""
+    `progress_callback` receives `redact_page` × N + `done`.
+
+    `isolate=True` runs the redaction in a child process, as `parse()` does.
+    `progress_callback` still gets the same events, in order."""
+    if isolate:
+        return run_isolated_call(
+            redact,
+            normalize_source(source),
+            bank=bank,
+            timeout=timeout,
+            memory_mb=memory_mb,
+            on_progress=progress_callback,
+        )
 
     def _redact_call(redactor: Parser | Redactor, src: Source) -> RedactResult:
         assert isinstance(redactor, Redactor)

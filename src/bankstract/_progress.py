@@ -61,6 +61,8 @@ def progress_scope(callback: ProgressCallback | None) -> Generator[None]:
     exception) so contextvar state never leaks between calls or threads.
 
     `callback=None` is a no-op: no install, no `done`, outer scope untouched.
+    `_isolate` relies on that: its child wraps a call that passes no callback of
+    its own, so the forwarding scope stays installed and fires the one `done`.
     So only the outermost call that was handed a callback fires `done`, once,
     however deeply `convert` / `parse` / `reconcile_result` nest."""
     if callback is None:

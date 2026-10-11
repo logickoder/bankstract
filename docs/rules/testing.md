@@ -6,4 +6,5 @@
 - Parser and metadata tests parametrize over the committed sample AND `_local/statement.*` when present. Skip the local case with `pytest.mark.skipif(not path.exists())` so CI stays green. The raw fixture catches metadata-regex regressions that placeholders pass.
 - Test format-version detection against every version you have.
 - Each parser has a `tests/<bank>/test_redactor.py`: synthetic-PDF round trip plus a PII leak sweep.
+- Integrity baselines come from raw `_local` files. Committed samples carry the redactor's fonts and writer, so `tests/test_integrity.py` allows only `unexpected_font` and `unexpected_producer` on them and requires raw files fully clean. See [integrity](integrity.md).
 - No mocking of `pdfplumber` / `camelot` / `pytesseract` / `openpyxl`. Tests run on real files.

@@ -1,5 +1,9 @@
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from openpyxl import Workbook, load_workbook  # type: ignore[import-untyped]
+from openpyxl.packaging.custom import StringProperty  # type: ignore[import-untyped]
 
 from bankstract._pymupdf import new_doc, open_doc
 from bankstract.redactors import all_redactors, get
@@ -103,3 +107,45 @@ def test_redactor_round_trip_strips_known_pii(tmp_path: Path) -> None:
     # ₦-supporting font, so this only matters for the synthetic round trip.
     for keep in ("Wallet Account", "Balance After"):
         assert keep in text, f"{keep!r} stripped — would break detect()"
+
+
+def test_xlsx_redactor_scrubs_last_modified_by(tmp_path: Path) -> None:
+    src = tmp_path / "in.xlsx"
+    wb: Any = Workbook()
+    wb.properties.lastModifiedBy = "FOO BAR"
+    wb.save(src)
+
+    result = get("opay").redact(src)
+
+    out: Any = load_workbook(BytesIO(result.data))
+    try:
+        assert out.properties.lastModifiedBy == "Test User"
+    finally:
+        out.close()
+
+
+def test_xlsx_redactor_scrubs_every_document_property(tmp_path: Path) -> None:
+    # openpyxl writes back whatever it loads. Any property can carry a name.
+    wb: Any = Workbook()
+    props = wb.properties
+    props.creator = "FOO BAR"
+    props.title = "ACME statement"
+    props.subject = "QUUX"
+    props.description = "BAR note"
+    props.keywords = "FOO"
+    props.category = "QUUX"
+    wb.custom_doc_props.append(StringProperty(name="Owner", value="FOO BAR"))
+    src = tmp_path / "in.xlsx"
+    wb.save(src)
+
+    result = get("opay").redact(src)
+
+    out: Any = load_workbook(BytesIO(result.data))
+    try:
+        assert out.properties.creator == "Test User"
+        assert out.properties.lastModifiedBy == "Test User"
+        for field in ("title", "subject", "description", "keywords", "category"):
+            assert getattr(out.properties, field) is None, field
+        assert out.custom_doc_props.names == []
+    finally:
+        out.close()
