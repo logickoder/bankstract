@@ -2,7 +2,7 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
-## Unreleased
+## 0.18.1 - 2026-10-21
 
 ### Fixed
 
