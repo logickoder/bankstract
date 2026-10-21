@@ -2,6 +2,12 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## Unreleased
+
+### Fixed
+
+- **JSON totals and metadata balances are unsigned at zero.** A `"-0.00"` header total or opening/closing balance serialized signed. `Transaction` rows were fixed in 0.18.1.
+
 ## 0.18.1 - 2026-10-21
 
 ### Fixed

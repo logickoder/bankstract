@@ -8,9 +8,15 @@ from typing import Any, TextIO
 from ..schema import ParseResult
 
 
+# Transaction drops the sign of zero itself. Totals and metadata balances are
+# plain Decimals, so a "-0.00" header would reach the wire signed.
+def _money(value: Decimal) -> str:
+    return str(value + 0 if value == 0 else value)
+
+
 def _encode(value: Any) -> Any:
     if isinstance(value, Decimal):
-        return str(value)
+        return _money(value)
     if isinstance(value, datetime):
         return value.isoformat()
     if is_dataclass(value) and not isinstance(value, type):
@@ -25,8 +31,8 @@ def _result_to_dict(result: ParseResult) -> dict[str, Any]:
         "format_version": result.format_version,
         "metadata": result.metadata,
         "totals": {
-            "credit": str(result.total_credit) if result.total_credit is not None else None,
-            "debit": str(result.total_debit) if result.total_debit is not None else None,
+            "credit": _money(result.total_credit) if result.total_credit is not None else None,
+            "debit": _money(result.total_debit) if result.total_debit is not None else None,
         },
         "transactions": [tx.model_dump(mode="json") for tx in result.transactions],
     }

@@ -114,3 +114,19 @@ def test_negative_zero_leaves_no_sign_on_the_wire() -> None:
     assert tx.model_dump(mode="json")["debit"] == "0.00"
     assert str(tx.credit) == "0"
     assert str(tx.balance) == "0.00"
+
+
+def test_negative_zero_totals_and_balances_leave_no_sign() -> None:
+    base = _sample_result()
+    assert base.metadata is not None
+    result = replace(
+        base,
+        total_credit=Decimal("-0.00"),
+        total_debit=Decimal("-0"),
+        metadata=replace(base.metadata, opening_balance=Decimal("-0.00")),
+    )
+    buf = StringIO()
+    write_json(result, buf)
+    payload = json.loads(buf.getvalue())
+    assert payload["totals"] == {"credit": "0.00", "debit": "0"}
+    assert payload["metadata"]["opening_balance"] == "0.00"
