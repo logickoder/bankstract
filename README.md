@@ -38,7 +38,7 @@ bankstract auto <pdf> -o <out> --isolate       # untrusted file: child process, 
 
 ### Output
 
-CSV columns: `date,narration,debit,credit,balance,reference,currency,has_time`. `has_time=false` means the time in `date` is padded `00:00:00`. New columns only append.
+CSV columns: `date,narration,debit,credit,balance,reference,currency,has_time`. `has_time=false` means the time in `date` is padded `00:00:00`. New columns only append. `debit` and `credit` can both be nonzero on one row when the statement prints both. bankstract never nets them.
 
 JSON adds `format_version`, `metadata`, `totals` and `reconciliation`. `reconciliation` is absent under `--no-reconcile`.
 

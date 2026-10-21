@@ -2,6 +2,17 @@
 
 Notable changes per release. Pre-1.0. Breaking changes land freely. Called out in the relevant entry.
 
+## Unreleased
+
+### Fixed
+
+- **A negative debit or credit raises `LayoutDriftError`.** A debit or credit column carries no sign, so a negative means the parser misread it. Before, it passed reconciliation and reached consumers as a clean parse. No raw fbn, zenith, palmpay or opay statement has one.
+- **A zero debit, credit or balance is always unsigned.** `Decimal("-0.00")` serialized as `"-0.00"` in CSV and JSON. It is now `"0.00"`.
+
+### Changed
+
+- **Documented two-sided rows.** `debit` and `credit` can both be nonzero on one row when the statement prints both. bankstract never nets them.
+
 ## 0.18.0 - 2026-10-11
 
 ### Added

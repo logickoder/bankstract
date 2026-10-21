@@ -185,3 +185,18 @@ def test_each_subclass_has_raise_site(exc_class: type[ParseError]) -> None:
             f"Either raise it from a real failure mode or remove the class."
         )
     assert sites  # informational
+
+
+@pytest.mark.parametrize("side", ["debit", "credit"])
+def test_negative_amount_raises_layout_drift(side: str) -> None:
+    from datetime import datetime
+    from decimal import Decimal
+
+    from bankstract.schema import Transaction
+
+    with pytest.raises(LayoutDriftError) as info:
+        Transaction.model_validate(
+            {"date": datetime(2026, 6, 1), "narration": "FOO", side: Decimal("-50.00")}
+        )
+    # The message reaches logs, so it never quotes the amount.
+    assert "50" not in str(info.value)

@@ -101,3 +101,16 @@ def test_write_json_includes_reconciliation_report() -> None:
         "row_wise": "not_available",
         "row_wise_reason": None,
     }
+
+
+def test_negative_zero_leaves_no_sign_on_the_wire() -> None:
+    tx = Transaction(
+        date=datetime(2026, 6, 1),
+        narration="FOO",
+        debit=Decimal("-0.00"),
+        credit=Decimal("-0"),
+        balance=Decimal("-0.00"),
+    )
+    assert tx.model_dump(mode="json")["debit"] == "0.00"
+    assert str(tx.credit) == "0"
+    assert str(tx.balance) == "0.00"

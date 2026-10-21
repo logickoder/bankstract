@@ -3,7 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 Format = Literal["pdf", "xlsx"]
 OutputFormat = Literal["csv", "json"]
@@ -17,6 +17,8 @@ class Transaction(BaseModel):
     # with time=00:00:00.
     date: datetime
     narration: str
+    # Both may be nonzero on one row when the statement prints both. Parsers
+    # report them as printed and never net them. Consumers carry both.
     debit: Decimal = Field(default=Decimal("0"))
     credit: Decimal = Field(default=Decimal("0"))
     # None for banks (e.g. PalmPay) whose statements omit a running balance
@@ -30,6 +32,31 @@ class Transaction(BaseModel):
     # as real (transfer-pair matching, dedup). Default False so a parser that
     # forgets to set it never overstates precision.
     has_time: bool = False
+
+    # Decimal keeps the sign of zero, so a "-0.00" cell would reach the wire
+    # as "-0.00". Adding 0 drops the sign and keeps the exponent.
+    @field_validator("debit", "credit", "balance")
+    @classmethod
+    def _unsigned_zero(cls, value: Decimal | None) -> Decimal | None:
+        if value is not None and value == 0:
+            return value + 0
+        return value
+
+    # A debit or credit column already carries the direction, so a sign means
+    # the parser misread the column. Raised as LayoutDriftError, not
+    # ValueError: pydantic wraps a ValueError into a ValidationError whose
+    # message quotes the amount, and that message reaches logs. Pydantic lets
+    # any other exception through unwrapped.
+    @field_validator("debit", "credit")
+    @classmethod
+    def _unsigned(cls, value: Decimal, info: ValidationInfo) -> Decimal:
+        if value < 0:
+            raise LayoutDriftError(
+                f"Negative {info.field_name} on a transaction row. "
+                "A debit or credit column carries no sign, so the parser misread it. "
+                "File an issue with the bank and format version."
+            )
+        return value
 
 
 @dataclass(frozen=True)
